@@ -1,0 +1,5 @@
+#pragma once
+
+#define COMMON_LIB_TYPE "@COMMON_LIB_TYPE@"
+
+#define TARGET_GAME_@COMMON_LIB_TYPE@

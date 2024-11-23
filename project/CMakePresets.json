@@ -1,0 +1,198 @@
+{
+	"version": 6,
+	"cmakeMinimumRequired": {
+		"major": 3,
+		"minor": 26,
+		"patch": 0
+	},
+	"configurePresets": [
+		{
+			"name": "common",
+			"hidden": true,
+			"cacheVariables": {
+				"BUILD_SHARED_LIBS": "OFF",
+				"ozz_build_msvc_rt_dll": "ON",
+				"ozz_build_samples": "OFF",
+				"ozz_build_tests": "OFF",
+				"ozz_build_howtos": "OFF",
+				"ozz_build_tools": "OFF",
+				"ozz_build_gltf": "OFF",
+				"ozz_build_fbx": "OFF",
+				"USING_VCPKG": "ON",
+				"CMAKE_CXX_FLAGS": "$env{PROJECT_PLATFORM_FLAGS} $env{PROJECT_TEXT_FLAGS} $env{PROJECT_COMPILER_FLAGS} $penv{CXXFLAGS}",
+				"SFSE_SUPPORT_XBYAK": "ON"
+			},
+			"vendor": {
+				"microsoft.com/VisualStudioSettings/CMake/1.0": {
+					"intelliSenseMode": "windows-msvc-x64",
+					"enableMicrosoftCodeAnalysis": true,
+					"enableClangTidyCodeAnalysis": true
+				}
+			}
+		},
+		{
+			"name": "game-f4",
+			"hidden": true,
+			"cacheVariables": {
+				"COMMON_LIB_TYPE": "F4"
+			}
+		},
+		{
+			"name": "game-sf",
+			"hidden": true,
+			"cacheVariables": {
+				"COMMON_LIB_TYPE": "SF"
+			}
+		},
+		{
+			"name": "packaging-vcpkg",
+			"hidden": true,
+			"cacheVariables": {
+				"CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+				"VCPKG_HOST_TRIPLET": "x64-windows-static-md",
+				"VCPKG_TARGET_TRIPLET": "x64-windows-static-md"
+			}
+		},
+		{
+			"name": "buildtype-debug",
+			"hidden": true,
+			"cacheVariables": {
+				"CMAKE_BUILD_TYPE": "Debug"
+			}
+		},
+		{
+			"name": "buildtype-release",
+			"hidden": true,
+			"cacheVariables": {
+				"CMAKE_BUILD_TYPE": "Release",
+				"CMAKE_CONFIGURATION_TYPES": "Release",
+				"CMAKE_CXX_FLAGS_RELEASE": "/O2 /DNDEBUG /Zi",
+				"CMAKE_SHARED_LINKER_FLAGS_RELEASE": "/DEBUG /OPT:REF /OPT:ICF"
+			}
+		},
+		{
+			"name": "x64",
+			"hidden": true,
+			"architecture": "x64",
+			"cacheVariables": {
+				"CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL"
+			}
+		},
+		{
+			"name": "generator-msvc",
+			"hidden": true,
+			"inherits": "x64",
+			"generator": "Visual Studio 17 2022"
+		},
+		{
+			"name": "generator-ninja",
+			"hidden": true,
+			"generator": "Ninja"
+		},
+		{
+			"name": "compiler-msvc",
+			"hidden": true,
+			"environment": {
+				"PROJECT_COMPILER_FLAGS": "/cgthreads8 /diagnostics:caret /fp:contract /fp:except- /guard:cf- /permissive- /Zc:__cplusplus /Zc:lambda /Zc:preprocessor /Zc:referenceBinding /Zc:rvalueCast /Zc:templateScope /Zc:ternary /Zc:preprocessor /EHsc /MP /W4 /external:anglebrackets /external:W0",
+				"PROJECT_COMPILER": "msvc"
+			}
+		},
+		{
+			"name": "compiler-clang",
+			"hidden": true,
+			"cacheVariables": {
+				"CMAKE_C_COMPILER": "clang",
+				"CMAKE_CXX_COMPILER": "clang++"
+			},
+			"environment": {
+				"PROJECT_COMPILER": "clang",
+				"PROJECT_COMPILER_FLAGS": "-Wno-overloaded-virtual -Wno-delete-non-abstract-non-virtual-dtor -Wno-inconsistent-missing-override -Wno-reinterpret-base-class"
+			},
+			"vendor": {
+				"microsoft.com/VisualStudioSettings/CMake/1.0": {
+					"intelliSenseMode": "windows-clang-x64"
+				}
+			}
+		},
+		{
+			"name": "compiler-clang-cl",
+			"hidden": true,
+			"inherits": "compiler-clang",
+			"cacheVariables": {
+				"CMAKE_C_COMPILER": "clang-cl",
+				"CMAKE_CXX_COMPILER": "clang-cl"
+			},
+			"environment": {
+				"CC": "clang-cl",
+				"CXX": "clang-cl",
+				"PROJECT_COMPILER_FLAGS": "/permissive- /EHsc /W4 -Wno-overloaded-virtual -Wno-delete-non-abstract-non-virtual-dtor -Wno-inconsistent-missing-override -Wno-reinterpret-base-class -D__cpp_consteval"
+			}
+		},
+		{
+			"name": "build-debug-msvc-f4",
+			"inherits": [
+				"common",
+				"packaging-vcpkg",
+				"buildtype-debug",
+				"generator-msvc",
+				"compiler-msvc",
+				"game-f4"
+			]
+		},
+		{
+			"name": "build-debug-msvc-sf",
+			"inherits": [
+				"common",
+				"packaging-vcpkg",
+				"buildtype-debug",
+				"generator-msvc",
+				"compiler-msvc",
+				"game-sf"
+			]
+		},
+		{
+			"name": "build-release-msvc-f4",
+			"inherits": [
+				"common",
+				"packaging-vcpkg",
+				"buildtype-release",
+				"generator-msvc",
+				"compiler-msvc",
+				"game-f4"
+			]
+		},
+		{
+			"name": "build-release-msvc-sf",
+			"inherits": [
+				"common",
+				"packaging-vcpkg",
+				"buildtype-release",
+				"generator-msvc",
+				"compiler-msvc",
+				"game-sf"
+			]
+		}
+	],
+	"buildPresets": [
+		{
+			"name": "debug-msvc-f4",
+			"configurePreset": "build-debug-msvc-f4",
+			"displayName": "3. (Debug) MSVC - MSVC [F4]"
+		},
+		{
+			"name": "debug-msvc-sf",
+			"configurePreset": "build-debug-msvc-sf",
+			"displayName": "3. (Debug) MSVC - MSVC [SF]"
+		},
+		{
+			"name": "release-msvc-f4",
+			"configurePreset": "build-release-msvc-f4",
+			"displayName": "4. (Release) MSVC - MSVC [F4]"
+		},
+		{
+			"name": "release-msvc-sf",
+			"configurePreset": "build-release-msvc-sf",
+			"displayName": "4. (Release) MSVC - MSVC [SF]"
+		}
+	]
+}

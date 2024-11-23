@@ -1,0 +1,12 @@
+[submodule "extern/CommonLibF4"]
+	path = extern/CommonLibF4
+	url = https://github.com/Deweh/CommonLibF4-NG
+[submodule "extern/CommonLibSF"]
+	path = extern/CommonLibSF
+	url = https://github.com/Deweh/CommonLibSF
+[submodule "extern/ozz-animation"]
+	path = extern/ozz-animation
+	url = https://github.com/Deweh/ozz-animation
+[submodule "extern/fastgltf"]
+	path = extern/fastgltf
+	url = https://github.com/Deweh/fastgltf
