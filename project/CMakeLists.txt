@@ -81,7 +81,7 @@ add_library(
 # include dir
 target_include_directories(
 	${PROJECT_NAME}
-	PRIVATE
+	PUBLIC
 		${CMAKE_CURRENT_BINARY_DIR}/include
 		${CMAKE_CURRENT_SOURCE_DIR}/include
 		${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -90,7 +90,7 @@ target_include_directories(
 # linkage
 target_link_libraries(
 	${PROJECT_NAME} 
-	PRIVATE
+	PUBLIC
 		simdjson::simdjson
 		fastgltf::fastgltf
 		libzippp::libzippp
@@ -140,6 +140,6 @@ endif()
 # PCH
 target_precompile_headers(
 	${PROJECT_NAME}
-	PRIVATE
+	PUBLIC
 		src/PCH.h
 )

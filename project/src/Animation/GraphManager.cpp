@@ -160,6 +160,14 @@ namespace Animation
 		return result;
 	}
 
+	void GraphManager::SetGraphControlsPosition(RE::Actor* a_actor, bool a_controls)
+	{
+		VisitGraph(a_actor, [&](Graph* g) {
+			g->SetLockPosition(a_controls);
+			return true;
+		});
+	}
+
 	bool GraphManager::AttachGenerator(RE::Actor* a_actor, std::unique_ptr<Generator> a_gen, float a_transitionTime)
 	{
 		return VisitGraph(a_actor, [&](Graph* g) {
