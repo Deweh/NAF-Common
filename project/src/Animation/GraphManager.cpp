@@ -12,8 +12,8 @@ namespace Animation
 {
 	GraphManager* GraphManager::GetSingleton()
 	{
-		static GraphManager singleton;
-		return &singleton;
+		static GraphManager* singleton{ new GraphManager() };
+		return singleton;
 	}
 
 	bool GraphManager::LoadAndStartAnimation(RE::Actor* a_actor, const std::string_view a_filePath, const std::string_view a_animId, float a_transitionTime)

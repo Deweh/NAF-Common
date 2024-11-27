@@ -841,6 +841,19 @@ namespace Animation
 		for (; it1 != loadedData->lastOutput.end() && it2 != transforms.end(); ++it1, ++it2) {
 			**it2 = *it1;
 		}
+
+#ifdef TARGET_GAME_SF
+		auto r = loadedData->rootNode;
+		if (!r)
+			return;
+		auto m = r->bgsModelNode;
+		if (!m)
+			return;
+		auto u = m->unk10;
+		if (!u)
+			return;
+		u->needsUpdate = true;
+#endif
 	}
 
 	void Graph::PushRootOutput(bool a_visible)

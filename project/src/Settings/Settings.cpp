@@ -37,6 +37,11 @@ namespace Settings
 		InitDefaultSkeleton();
 	}
 
+	const std::filesystem::path& GetSkeletonsPath()
+	{
+		return skeletonsDir;
+	}
+
 	namespace detail
 	{
 		std::shared_ptr<Animation::OzzSkeleton> BuildSkeleton(const std::string_view a_name, RE::Actor* a_actor)
