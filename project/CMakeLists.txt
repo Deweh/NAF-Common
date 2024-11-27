@@ -51,10 +51,10 @@ configure_file(
 add_library(CommonLibInterface INTERFACE)
 
 if(COMMON_LIB_TYPE STREQUAL "F4")
-    find_dependency_path(CommonLibF4 CommonLibF4/include/F4SE/F4SE.h)
+    add_subdirectory("../extern/CommonLibF4/" CommonLibF4)
     target_link_libraries(CommonLibInterface INTERFACE CommonLibF4::CommonLibF4)
 elseif(COMMON_LIB_TYPE STREQUAL "SF")
-    find_dependency_path(CommonLibSF include/SFSE/SFSE.h)
+    add_subdirectory("../extern/CommonLibSF/" CommonLibSF)
     target_link_libraries(CommonLibInterface INTERFACE CommonLibSF::CommonLibSF)
 else()
     message(FATAL_ERROR "Invalid COMMON_LIB_TYPE specified")
@@ -63,8 +63,8 @@ endif()
 find_library(DETOURS_LIBRARY detours REQUIRED)
 find_package(libzippp CONFIG REQUIRED)
 find_package(simdjson CONFIG REQUIRED)
-find_dependency_path(ozz-animation include/ozz/animation/runtime/animation.h)
-find_dependency_path(fastgltf include/fastgltf/core.hpp)
+add_subdirectory("../extern/ozz-animation/" ozz-animation)
+add_subdirectory("../extern/fastgltf/" fastgltf)
 
 # glob source files
 file(GLOB_RECURSE SRC_FILES src/*.cpp)
