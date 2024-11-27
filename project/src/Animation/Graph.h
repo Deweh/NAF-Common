@@ -84,7 +84,6 @@ namespace Animation
 			std::vector<ozz::math::Float4x4> lastOutput;
 			PoseCache::Handle restPose;
 			PoseCache::Handle snapshotPose;
-			PoseCache::Handle generatedPose;
 			PoseCache::Handle blendedPose;
 			std::shared_ptr<Face::MorphData> faceMorphData = nullptr;
 #ifdef TARGET_GAME_SF
@@ -136,7 +135,7 @@ namespace Animation
 		bool RemovePostGenJob(uint64_t a_guid);
 		void StartTransition(std::unique_ptr<Generator> a_dest, float a_transitionTime);
 		void AdvanceTransitionTime(float a_deltaTime);
-		void UpdateTransition(const ozz::span<ozz::math::SoaTransform>& a_output);
+		void UpdateTransition(const ozz::span<ozz::math::SoaTransform>& a_output, const ozz::span<ozz::math::SoaTransform>& a_generatedPose);
 		void UpdatePostGenJobs(float a_deltaTime, const std::span<ozz::math::SoaTransform>& a_output);
 		void PushAnimationOutput(float a_deltaTime, const std::span<ozz::math::SoaTransform>& a_output);
 		void PushRootOutput(bool a_visible);

@@ -203,15 +203,18 @@ namespace Animation
 		}
 
 		if (a_visible) {
-			generator->Generate(loadedData->poseCache, this);
+			if (requiresBaseTransforms.load()) {
+				UpdateRestPose();
+			}
+			auto generatedPose = generator->Generate(loadedData->poseCache, this);
 
 			if (flags.any(FLAGS::kTransitioning)) {
 				auto blendPose = loadedData->blendedPose.get();
 				AdvanceTransitionTime(a_deltaTime);
-				UpdateTransition(ozz::make_span(blendPose));
+				UpdateTransition(ozz::make_span(blendPose), ozz::make_span(generatedPose));
 				PushAnimationOutput(a_deltaTime, blendPose);
 			} else {
-				PushAnimationOutput(a_deltaTime, loadedData->generatedPose.get());
+				PushAnimationOutput(a_deltaTime, generatedPose);
 			}
 		} else {
 			if (flags.any(FLAGS::kTransitioning))
@@ -466,13 +469,16 @@ namespace Animation
 			l->blendLayers[0].weight = .0f;
 			l->blendLayers[1].weight = .0f;
 
+			if (Util::String::CaseInsensitiveCompare(skeleton->name, "HumanRace")) {
+				l->eyeTrackData = std::make_unique<EyeTrackingData>();
+			}
+
 			l->lastOutput.reserve(skeleton->data->num_joints());
 			l->lastOutput.resize(skeleton->data->num_joints(), ozz::math::Float4x4::identity());
 			l->poseCache.set_pose_size(skeleton->data->num_soa_joints());
 			l->poseCache.reserve(4);
 			l->restPose = l->poseCache.acquire_handle();
 			l->snapshotPose = l->poseCache.acquire_handle();
-			l->generatedPose = l->poseCache.acquire_handle();
 			l->blendedPose = l->poseCache.acquire_handle();
 
 			if (unloadedData && !unloadedData->restoreFile.QPath().empty()) {
@@ -659,15 +665,14 @@ namespace Animation
 		}
 	}
 
-	void Graph::UpdateTransition(const ozz::span<ozz::math::SoaTransform>& a_output)
+	void Graph::UpdateTransition(const ozz::span<ozz::math::SoaTransform>& a_output, const ozz::span<ozz::math::SoaTransform>& a_generatedPose)
 	{
 		auto& transition = loadedData->transition;
 		auto& blendLayers = loadedData->blendLayers;
-		blendLayers[0].transform = loadedData->generatedPose.get_ozz();
+		blendLayers[0].transform = a_generatedPose;
 		blendLayers[1].transform = loadedData->snapshotPose.get_ozz();
 
 		ozz::animation::BlendingJob blendJob;
-		UpdateRestPose();
 		blendJob.rest_pose = loadedData->restPose.get_ozz();
 		blendJob.layers = ozz::make_span(blendLayers);
 		blendJob.output = a_output;
