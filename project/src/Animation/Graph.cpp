@@ -475,6 +475,7 @@ namespace Animation
 
 			l->lastOutput.reserve(skeleton->data->num_joints());
 			l->lastOutput.resize(skeleton->data->num_joints(), ozz::math::Float4x4::identity());
+			l->boneMask = skeleton->defaultBoneMask;
 			l->poseCache.set_pose_size(skeleton->data->num_soa_joints());
 			l->poseCache.reserve(4);
 			l->restPose = l->poseCache.acquire_handle();
@@ -840,11 +841,15 @@ namespace Animation
 		}
 
 		flags.set(FLAGS::kGeneratedFirstPose);
-		auto it1 = std::next(loadedData->lastOutput.begin());
-		auto it2 = std::next(transforms.begin());
+		const auto& source = loadedData->lastOutput;
+		const auto& dest = transforms;
+		const auto& mask = loadedData->boneMask;
 
-		for (; it1 != loadedData->lastOutput.end() && it2 != transforms.end(); ++it1, ++it2) {
-			**it2 = *it1;
+		size_t end = transforms.size();
+		for (size_t i = 0; i < end; i++) {
+			if (mask[i]) {
+				*dest[i] = source[i];
+			}
 		}
 
 #ifdef TARGET_GAME_SF

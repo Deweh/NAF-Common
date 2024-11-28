@@ -82,6 +82,7 @@ namespace Animation
 			PoseCache poseCache;
 			std::vector<std::pair<RE::BSFixedString, RE::BSFixedString>> pendingEvents;
 			std::vector<ozz::math::Float4x4> lastOutput;
+			std::vector<bool> boneMask;
 			PoseCache::Handle restPose;
 			PoseCache::Handle snapshotPose;
 			PoseCache::Handle blendedPose;

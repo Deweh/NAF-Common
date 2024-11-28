@@ -20,8 +20,6 @@ namespace Animation::Procedural
 
 		if (!context->initialized) {
 			const SimdFloat4& boneMS = boneTransform->cols[3];
-			const SimdFloat4 boneLS = TransformPoint(parentInverseMS, boneMS);
-			context->restOffset = boneLS;
 			context->physicsPosition = boneMS;
 			context->previousPosition = boneMS;
 			(*prevRootPos) = rootTransform->cols[3];
@@ -86,7 +84,7 @@ namespace Animation::Procedural
 		const float oscillationFreq = std::sqrt(stiffness / mass);
 
 		a_constantsOut.force = gravityForce + inertiaForce;
-		a_constantsOut.restOffsetMS = TransformPoint(*parentTransform, context->restOffset);
+		a_constantsOut.restOffsetMS = boneTransform->cols[3];
 		a_constantsOut.dampingFactor = simd_float4::Load1(1.0f - std::clamp(damping, 0.0f, 1.0f));
 		a_constantsOut.massInverse = 1.0f / mass;
 	}

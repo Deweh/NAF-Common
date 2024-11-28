@@ -11,7 +11,6 @@ namespace Animation::Procedural
 
 		struct Context
 		{
-			ozz::math::SimdFloat4 restOffset;
 			ozz::math::SimdFloat4 physicsPosition;
 			ozz::math::SimdFloat4 previousPosition;
 			ozz::math::SimdFloat4 accumulatedMovement = ozz::math::simd_float4::zero();
