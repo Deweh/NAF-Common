@@ -15,7 +15,17 @@ namespace Animation::Procedural
 
 	struct PNodeInstanceData
 	{
+		virtual size_t GetSizeBytes();
 		virtual ~PNodeInstanceData() = default;
+	};
+
+	template <typename T>
+	struct PNodeInstanceDataT : public PNodeInstanceData
+	{
+		virtual size_t GetSizeBytes() override
+		{
+			return sizeof(T);
+		}
 	};
 
 	struct PEvaluationContext
@@ -42,6 +52,8 @@ namespace Animation::Procedural
 		void UpdateModelSpaceCache(const std::span<ozz::math::SoaTransform>& a_localPose,
 			int a_from = ozz::animation::Skeleton::kNoParent,
 			int a_to = ozz::animation::Skeleton::kMaxJoints);
+
+		size_t GetSizeBytes() const;
 	};
 
 	class PNode
@@ -82,6 +94,7 @@ namespace Animation::Procedural
 		virtual void Synchronize(PNodeInstanceData* a_instanceData, PNodeInstanceData* a_ownerInstance, float a_correctionDelta);
 		virtual bool SetCustomValues(const std::span<PEvaluationResult>& a_values, const std::string_view a_skeleton);
 		virtual Registration* GetTypeInfo();
+		virtual size_t GetSizeBytes();
 		virtual ~PNode() = default;
 
 		template <typename T>
@@ -100,6 +113,11 @@ namespace Animation::Procedural
 		virtual Registration* GetTypeInfo() override
 		{
 			return &T::_reg;
+		}
+
+		virtual size_t GetSizeBytes() override
+		{
+			return sizeof(T);
 		}
 	};
 

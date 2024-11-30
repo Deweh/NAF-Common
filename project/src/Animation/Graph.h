@@ -157,6 +157,7 @@ namespace Animation
 		void ProcessEvents(GraphEventProcessor* a_gameGraph) const;
 		void SendEventExternal(const RE::BSFixedString& a_event, const RE::BSFixedString& a_arg = "");
 		void SetLockPosition(bool a_lock);
+		size_t GetSizeBytes() const;
 		bool GetRequiresDetach() const;
 		bool GetRequiresBaseTransforms() const;
 	};

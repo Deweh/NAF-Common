@@ -8,12 +8,14 @@ namespace Animation::Procedural
 	class PFullAnimationNode : public PNodeT<PFullAnimationNode>
 	{
 	public:
-		struct InstanceData : public PNodeInstanceData
+		struct InstanceData : public PNodeInstanceDataT<InstanceData>
 		{
 			bool looped{ false };
 			float localTime{ 0.0f };
 			float speedMod{ 0.0f };
 			std::unique_ptr<IBasicAnimationContext> context;
+
+			virtual size_t GetSizeBytes() override;
 		};
 
 		std::shared_ptr<IBasicAnimation> anim;

@@ -28,12 +28,14 @@ namespace Animation
 		{
 		public:
 			ozz::animation::SamplingJob::Context context;
+
+			virtual size_t GetSizeBytes() override;
 		};
 
 		ozz::unique_ptr<ozz::animation::Animation> data = nullptr;
 		std::unique_ptr<OzzFaceAnimation> faceData = nullptr;
 
-		virtual size_t GetSize() override;
+		virtual size_t GetSizeBytes() override;
 		virtual void SampleBoneAnimation(float a_time, const ozz::span<ozz::math::SoaTransform>& a_transformsOut, IBasicAnimationContext* a_context) override;
 		virtual void SampleFaceAnimation(float a_time, const std::span<float>& a_morphsOut) override;
 		virtual void SampleEventTrack(float a_time, float a_timeStep, IAnimEventHandler* a_eventHandler) override;

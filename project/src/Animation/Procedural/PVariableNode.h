@@ -6,7 +6,7 @@ namespace Animation::Procedural
 	class PVariableNode : public PNodeT<PVariableNode>
 	{
 	public:
-		struct InstanceData : public PNodeInstanceData
+		struct InstanceData : public PNodeInstanceDataT<InstanceData>
 		{
 			float value;
 		};

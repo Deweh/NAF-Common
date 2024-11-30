@@ -8,6 +8,7 @@ namespace Animation
 	{
 	public:
 		virtual ~IBasicAnimationContext() = default;
+		virtual size_t GetSizeBytes() = 0;
 	};
 
 	class IBasicAnimation : public IAnimationFile

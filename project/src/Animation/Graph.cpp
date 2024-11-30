@@ -581,6 +581,34 @@ namespace Animation
 		}
 	}
 
+	size_t Graph::GetSizeBytes() const
+	{
+		size_t result = sizeof(Graph) + std::span(transforms).size_bytes() + std::span(postGenJobs).size_bytes();
+
+		if (sequencer)
+			result += sizeof(Sequencer);
+
+		if (generator)
+			result += generator->GetSizeBytes();
+
+		if (loadedData) {
+			auto l = loadedData.get();
+			size_t maskSize = l->boneMask.size();
+			result += sizeof(LOADED_DATA) + (l->poseCache.transforms_capacity() * sizeof(ozz::math::SoaTransform)) + std::span(l->pendingEvents).size_bytes()
+				+ std::span(l->lastOutput).size_bytes() + (maskSize > 0 ? maskSize / 8 : 0);
+
+			if (l->eyeTrackData) {
+				result += sizeof(EyeTrackingData);
+			}
+		}
+
+		if (unloadedData) {
+			result += sizeof(UNLOADED_DATA);
+		}
+
+		return result;
+	}
+
 	bool Graph::GetRequiresDetach() const
 	{
 		return flags.none(

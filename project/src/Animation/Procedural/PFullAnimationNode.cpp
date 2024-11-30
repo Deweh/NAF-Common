@@ -70,4 +70,9 @@ namespace Animation::Procedural
 		}
 		return true;
 	}
+
+	size_t PFullAnimationNode::InstanceData::GetSizeBytes()
+	{
+		return sizeof(PFullAnimationNode::InstanceData) + context->GetSizeBytes();
+	}
 }

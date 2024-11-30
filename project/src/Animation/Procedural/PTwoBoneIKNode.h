@@ -6,7 +6,7 @@ namespace Animation::Procedural
 	class PTwoBoneIKAdjustNode : public PNodeT<PTwoBoneIKAdjustNode>
 	{
 	public:
-		struct InstanceData : public PNodeInstanceData
+		struct InstanceData : public PNodeInstanceDataT<InstanceData>
 		{
 			bool targetWithinRange = false;
 		};

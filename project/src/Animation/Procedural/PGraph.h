@@ -26,7 +26,7 @@ namespace Animation::Procedural
 		void Synchronize(InstanceData& a_graphInst, InstanceData& a_ownerInst, PGraph* a_ownerGraph, float a_correctionDelta);
 		void InitInstanceData(InstanceData& a_graphInst);
 		virtual std::unique_ptr<Generator> CreateGenerator() override;
-		virtual size_t GetSize();
+		virtual size_t GetSizeBytes();
 
 	protected:
 		friend class Serialization::BlendGraphImport;

@@ -38,4 +38,9 @@ namespace Animation::Procedural
 		sampleJob.ratio = 0.0f;
 		return sampleJob.Run();
 	}
+
+	size_t PStaticPoseNode::GetSizeBytes()
+	{
+		return sizeof(PStaticPoseNode) + std::span(pose).size_bytes();
+	}
 }

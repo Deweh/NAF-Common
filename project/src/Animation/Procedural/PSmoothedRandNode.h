@@ -12,7 +12,7 @@ namespace Animation::Procedural
 			kDelaying
 		};
 
-		struct InstanceData : public PNodeInstanceData
+		struct InstanceData : public PNodeInstanceDataT<InstanceData>
 		{
 			RandState state = RandState::kDelaying;
 			float startValue{ 0.5f };

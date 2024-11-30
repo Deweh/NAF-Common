@@ -12,6 +12,7 @@ namespace Animation::Procedural
 
 		virtual PEvaluationResult Evaluate(PNodeInstanceData* a_instanceData, PoseCache& a_poseCache, PEvaluationContext& a_evalContext) override;
 		virtual bool SetCustomValues(const std::span<PEvaluationResult>& a_values, const std::string_view a_skeleton) override;
+		virtual size_t GetSizeBytes() override;
 
 		inline static Registration _reg{
 			"pose",

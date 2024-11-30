@@ -165,12 +165,6 @@ namespace Animation
 		}
 	}
 
-	struct tst
-	{
-		RE::NiMatrix3 rot;
-		RE::NiPoint3 pt;
-	};
-
 	void Transform::ExtractSoaTransformsReal(const std::span<ozz::math::SoaTransform>& in, std::span<RE::NiTransform>& out)
 	{
 		if (in.size() < 2 || out.size() < 2)

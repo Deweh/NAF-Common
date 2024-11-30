@@ -7,4 +7,9 @@ namespace Animation::Procedural
 		std::get<PoseCache::Handle>(a_evalContext.results[inputs[0]]).reset();
 		return 0.0f;
 	}
+
+	size_t PInternalCacheReleaseNode::GetSizeBytes()
+	{
+		return sizeof(PInternalCacheReleaseNode);
+	}
 }

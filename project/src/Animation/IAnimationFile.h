@@ -17,7 +17,7 @@ namespace Animation
 		ExtraData extra;
 
 		virtual std::unique_ptr<Generator> CreateGenerator() = 0;
-		virtual size_t GetSize() = 0;
+		virtual size_t GetSizeBytes() = 0;
 		virtual ~IAnimationFile();
 	};
 }

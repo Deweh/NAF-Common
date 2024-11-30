@@ -78,10 +78,13 @@ namespace Animation::Procedural
 		return std::make_unique<ProceduralGenerator>(std::static_pointer_cast<PGraph>(shared_from_this()));
 	}
 
-	size_t PGraph::GetSize()
+	size_t PGraph::GetSizeBytes()
 	{
-		//TODO: Implement memory size calculation.
-		return 0;
+		size_t result = sizeof(PGraph) + std::span(nodes).size_bytes();
+		for (auto& n : nodes) {
+			result += n->GetSizeBytes();
+		}
+		return result;
 	}
 
 	bool PGraph::SortNodes(std::vector<PNode*>& a_sortedNodes)

@@ -28,6 +28,7 @@ namespace Util::Ozz
 		const size_t max_tracks = a_numSoaTracks * 4;
 		const size_t num_outdated = (a_numSoaTracks + 7) / 8;
 		const size_t size =
+			sizeof(ozz::animation::SamplingJob::Context) +
 			sizeof(InterpSoaFloat3) * a_numSoaTracks +
 			sizeof(InterpSoaQuaternion) * a_numSoaTracks +
 			sizeof(InterpSoaFloat3) * a_numSoaTracks +

@@ -2,6 +2,11 @@
 
 namespace Animation::Procedural
 {
+	size_t PNodeInstanceData::GetSizeBytes()
+	{
+		return 0;
+	}
+
 	void PEvaluationContext::UpdateModelSpaceCache(const std::span<ozz::math::SoaTransform>& a_localPose, int a_from, int a_to)
 	{
 		ozz::animation::LocalToModelJob l2mJob;
@@ -11,6 +16,20 @@ namespace Animation::Procedural
 		l2mJob.from = a_from;
 		l2mJob.to = a_to;
 		l2mJob.Run();
+	}
+
+	size_t PEvaluationContext::GetSizeBytes() const
+	{
+		size_t result = sizeof(PEvaluationContext) + std::span(nodeInstances).size_bytes() +
+		                std::span(results).size_bytes() + std::span(syncMap).size_bytes();
+
+		for (auto& inst : nodeInstances) {
+			if (inst) {
+				result += inst->GetSizeBytes();
+			}
+		}
+
+		return result;
 	}
 
 	std::unique_ptr<PNodeInstanceData> PNode::CreateInstanceData()
@@ -34,6 +53,11 @@ namespace Animation::Procedural
 	PNode::Registration* PNode::GetTypeInfo()
 	{
 		return nullptr;
+	}
+
+	size_t PNode::GetSizeBytes()
+	{
+		return 0;
 	}
 
 	PNode::Registration::Registration(const char* a_typeName,

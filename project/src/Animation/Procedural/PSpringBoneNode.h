@@ -51,7 +51,7 @@ namespace Animation::Procedural
 	class PSpringBoneNode : public PNodeT<PSpringBoneNode>
 	{
 	public:
-		struct InstanceData : public PNodeInstanceData
+		struct InstanceData : public PNodeInstanceDataT<InstanceData>
 		{
 			SpringPhysicsJob::Context context;
 		};

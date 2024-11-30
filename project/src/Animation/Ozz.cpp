@@ -2,9 +2,14 @@
 #include "FileManager.h"
 #include "Transform.h"
 #include "Generator.h"
-#include "Ozz.h"
+#include "Util/Ozz.h"
 
-size_t Animation::OzzAnimation::GetSize()
+size_t Animation::OzzAnimation::Context::GetSizeBytes()
+{
+	return Util::Ozz::CalcContextSizeBytes(context.max_soa_tracks());
+}
+
+size_t Animation::OzzAnimation::GetSizeBytes()
 {
 	size_t result = 0;
 

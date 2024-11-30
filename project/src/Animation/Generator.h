@@ -45,6 +45,7 @@ namespace Animation
 		virtual void Synchronize(Generator* a_other, float a_correctionDelta);
 		virtual GenType GetType();
 		virtual bool RequiresRestPose();
+		virtual size_t GetSizeBytes();
 
 		virtual ~Generator() = default;
 	};
@@ -67,6 +68,7 @@ namespace Animation
 		virtual void Synchronize(Generator* a_other, float a_correctionDelta) override;
 		virtual GenType GetType() override;
 		virtual bool RequiresRestPose() override;
+		virtual size_t GetSizeBytes() override;
 
 		virtual ~ProceduralGenerator() = default;
 	};
@@ -91,6 +93,7 @@ namespace Animation
 		virtual const std::string_view GetSourceFile() override;
 		virtual void Synchronize(Generator* a_other, float a_correctionDelta);
 		virtual GenType GetType();
+		virtual size_t GetSizeBytes() override;
 
 		virtual ~LinearClipGenerator() = default;
 	};

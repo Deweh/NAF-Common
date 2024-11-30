@@ -6,7 +6,7 @@ namespace Animation::Procedural
 	class PSmoothValNode : public PNodeT<PSmoothValNode>
 	{
 	public:
-		struct InstanceData : public PNodeInstanceData
+		struct InstanceData : public PNodeInstanceDataT<InstanceData>
 		{
 			bool initialized{ false };
 			float previousValue;
