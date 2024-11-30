@@ -15,6 +15,7 @@ namespace Animation
 	const std::string_view Generator::GetSourceFile() { return ""; }
 	void Generator::Synchronize(Generator* a_other, float a_correctionDelta) {}
 	GenType Generator::GetType() { return GenType::kBase; }
+	bool Generator::RequiresRestPose() { return false; }
 
 	LinearClipGenerator::LinearClipGenerator(const std::shared_ptr<IBasicAnimation>& a_anim)
 	{
@@ -210,5 +211,10 @@ namespace Animation
 	GenType ProceduralGenerator::GetType()
 	{
 		return GenType::kProcedural;
+	}
+
+	bool ProceduralGenerator::RequiresRestPose()
+	{
+		return pGraph->needsRestPose;
 	}
 }

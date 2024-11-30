@@ -2,6 +2,7 @@
 #include "simdjson.h"
 #include "Animation/Procedural/PActorNode.h"
 #include "Animation/Procedural/PFullAnimationNode.h"
+#include "Animation/Procedural/PBasePoseNode.h"
 
 namespace Serialization
 {
@@ -56,6 +57,7 @@ namespace Serialization
 			std::string_view stringVal;
 			double numVal;
 			uint64_t intVal;
+			bool bVal;
 			for (auto n : nodes) {
 				std::string_view typeName = n["type"];
 				PNode::Registration* typeInfo = nullptr;
@@ -104,6 +106,11 @@ namespace Serialization
 						case PEvaluationType<uint64_t>:
 							intVal = curVal;
 							values.emplace_back(intVal);
+							break;
+						case PEvaluationType<bool>:
+							bVal = curVal;
+							values.emplace_back(bVal);
+							break;
 						}
 					}
 					if (!currentNode->SetCustomValues(values, a_skeleton)) {
@@ -121,16 +128,6 @@ namespace Serialization
 			//Pass 2: Connect inputs together.
 			for (auto& n : result->nodes) {
 				auto destTypeInfo = n->GetTypeInfo();
-
-				// Find the animation node with the longest duration.
-				if (destTypeInfo == &PFullAnimationNode::_reg) {
-					if (auto ptr = reinterpret_cast<PFullAnimationNode*>(result->loopTrackingNode);
-						ptr == nullptr || ptr->duration < static_cast<PFullAnimationNode*>(n.get())->duration)
-					{
-						result->loopTrackingNode = reinterpret_cast<uint64_t>(n.get());
-					}
-				}
-
 				auto destInputIter = destTypeInfo->inputs.begin();
 				for (auto& i : n->inputs) {
 					if (auto iter = nodeIdMap.find(i); iter != nodeIdMap.end()) {
@@ -161,6 +158,20 @@ namespace Serialization
 					iter = result->nodes.erase(iter);
 				} else {
 					iter++;
+				}
+			}
+
+			//Pass 4: Cache data for special nodes.
+			for (auto& n : result->nodes) {
+				auto destTypeInfo = n->GetTypeInfo();
+				if (destTypeInfo == &PFullAnimationNode::_reg) {
+					// Find the animation node with the longest duration.
+					if (auto ptr = reinterpret_cast<PFullAnimationNode*>(result->loopTrackingNode);
+						ptr == nullptr || ptr->anim->GetDuration() < static_cast<PFullAnimationNode*>(n.get())->anim->GetDuration()) {
+						result->loopTrackingNode = reinterpret_cast<uint64_t>(n.get());
+					}
+				} else if (destTypeInfo == &PBasePoseNode::_reg) {
+					result->needsRestPose = true;
 				}
 			}
 

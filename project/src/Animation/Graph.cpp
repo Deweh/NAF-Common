@@ -164,7 +164,7 @@ namespace Animation
 			Face::Manager::GetSingleton()->OnAnimDataChange(oldFaceAnimData, loadedData->faceAnimData);
 			SetNoBlink(true);
 
-			if (generator->HasFaceAnimation()) {
+			if (generator && generator->HasFaceAnimation()) {
 				SetFaceMorphsControlled(true, loadedData->transition.queuedDuration);
 				generator->SetFaceMorphData(loadedData->faceMorphData.get());
 			}
@@ -734,6 +734,7 @@ namespace Animation
 
 		auto& transition = loadedData->transition;
 		auto& blendLayers = loadedData->blendLayers;
+		bool needsRestPose = a_dest && a_dest->RequiresRestPose();
 
 		const auto SetData = [&](TRANSITION_TYPE t) {
 			switch (t) {
@@ -741,8 +742,8 @@ namespace Animation
 				requiresBaseTransforms = true;
 				transition.startLayer = -1;
 				transition.endLayer = 0;
-				transition.onEnd = [&]() {
-					requiresBaseTransforms = false;
+				transition.onEnd = [this, needsRestPose = needsRestPose]() {
+					requiresBaseTransforms = needsRestPose;
 				};
 				break;
 			case kGraphToGame:
@@ -756,7 +757,7 @@ namespace Animation
 				break;
 			case kGeneratorToGenerator:
 				QueueEvent("AnimObjUnequip", "");
-				requiresBaseTransforms = false;
+				requiresBaseTransforms = needsRestPose;
 				blendLayers[0].weight = 0.0f;
 				blendLayers[1].weight = 1.0f;
 				transition.startLayer = 1;

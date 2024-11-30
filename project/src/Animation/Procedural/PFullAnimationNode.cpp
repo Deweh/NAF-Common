@@ -21,14 +21,14 @@ namespace Animation::Procedural
 		PoseCache::Handle result = a_poseCache.acquire_handle();
 		auto resultSpan = result.get_ozz();
 
-		anim->SampleBoneAnimation(inst->localTime * duration, resultSpan, inst->context.get());
+		anim->SampleBoneAnimation(inst->localTime, resultSpan, inst->context.get());
 		return result;
 	}
 
 	void PFullAnimationNode::AdvanceTime(PNodeInstanceData* a_instanceData, float a_deltaTime)
 	{
 		auto inst = static_cast<InstanceData*>(a_instanceData);
-		float newTime = inst->localTime + (a_deltaTime * (1.0f + inst->speedMod) / duration);
+		float newTime = inst->localTime + (a_deltaTime * (1.0f + inst->speedMod) * durationInv);
 
 		//Loops within the time ratio 0-1.
 		//If the floor is non-zero (outside 0-1), then it's going to loop this frame.
@@ -64,7 +64,10 @@ namespace Animation::Procedural
 			return false;
 		}
 		
-		duration = anim->GetDuration();
+		durationInv = anim->GetDuration();
+		if (durationInv > 0.00001f) {
+			durationInv = 1.0f / durationInv;
+		}
 		return true;
 	}
 }

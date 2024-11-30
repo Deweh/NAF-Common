@@ -149,64 +149,6 @@ namespace Animation::Procedural
 		};
 	};
 
-	class PSetBoneTransformNode : public PNodeT<PSetBoneTransformNode>
-	{
-	public:
-		bool isModelSpace;
-		uint16_t boneIdx;
-
-		virtual PEvaluationResult Evaluate(PNodeInstanceData* a_instanceData, PoseCache& a_poseCache, PEvaluationContext& a_evalContext) override
-		{
-			PoseCache::Handle& input = std::get<PoseCache::Handle>(a_evalContext.results[inputs[0]]);
-			ozz::math::SimdFloat4 position;
-
-			if (!isModelSpace) {
-				position = Util::Ozz::GetSoATransformTranslation(boneIdx, input.get());
-			} else {
-				a_evalContext.UpdateModelSpaceCache(input.get(), ozz::animation::Skeleton::kNoParent, boneIdx);
-				position = ozz::math::SetW(a_evalContext.modelSpaceCache[boneIdx].cols[3], ozz::math::simd_float4::zero());
-			}
-
-			ozz::math::Float4 result;
-			ozz::math::StorePtrU(position, &result.x);
-			return result;
-			
-		}
-
-		virtual bool SetCustomValues(const std::span<PEvaluationResult>& a_values, const std::string_view a_skeleton) override
-		{
-			const RE::BSFixedString& boneName = std::get<RE::BSFixedString>(a_values[0]);
-			isModelSpace = std::get<bool>(a_values[1]);
-
-			std::array<int32_t, 1> idxs;
-			std::array<std::string_view, 1> names = { boneName.c_str() };
-			auto skele = Settings::GetSkeleton(std::string{ a_skeleton });
-
-			if (!Util::Ozz::GetJointIndexes(skele->data.get(), names, idxs)) {
-				return false;
-			}
-
-			boneIdx = idxs[0];
-
-			return true;
-		}
-
-		inline static Registration _reg{
-			"set_bone_trans",
-			{
-				{ "input", PEvaluationType<PoseCache::Handle> },
-				{ "rot", PEvaluationType<ozz::math::Float4>, true },
-				{ "pos", PEvaluationType<ozz::math::Float4>, true }
-			},
-			{
-				{ "bone", PEvaluationType<RE::BSFixedString> },
-				{ "ms", PEvaluationType<bool> }
-			},
-			PEvaluationType<PoseCache::Handle>,
-			CreateNodeOfType<PSetBoneTransformNode>
-		};
-	};
-
 	class PFixedVectorNode : public PNodeT<PFixedVectorNode>
 	{
 	public:
