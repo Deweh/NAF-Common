@@ -77,9 +77,9 @@ namespace Animation::Procedural
 			StorePtrU(context->rotation.previous.xyzw, &q0.x);
 			StorePtrU(context->rotation.current.xyzw, &q1.x);
 			const Quaternion interpRotation = SLerp(q0, q1, ratio);
-			const SimdQuaternion localRot = SimdQuaternion{ .xyzw = simd_float4::LoadPtrU(&interpRotation.x) } *
-			                                Util::Ozz::ToNormalizedQuaternion(parentInverseMS);
-			*rotationOutput = localRot;
+			const SimdQuaternion localRot = Util::Ozz::ToNormalizedQuaternion(parentInverseMS) *
+			                                SimdQuaternion{ .xyzw = simd_float4::LoadPtrU(&interpRotation.x) };
+			*rotationOutput = Normalize(localRot);
 		}
 		
 		return true;
@@ -106,7 +106,8 @@ namespace Animation::Procedural
 		a_constantsOut.force = gravityForce + inertiaForce;
 		a_constantsOut.restPositionMS = boneTransform->cols[3];
 		a_constantsOut.restRotationMS = Util::Ozz::ToNormalizedQuaternion(*boneTransform);
-		a_constantsOut.dampingFactor = simd_float4::Load1(1.0f - std::clamp(damping, 0.0f, 1.0f));
+		a_constantsOut.linearDamping = simd_float4::Load1(1.0f - std::clamp(damping, 0.0f, 1.0f));
+		a_constantsOut.angularDamping = simd_float4::Load1((2.0f * std::sqrt(stiffness / mass)) * damping);
 		a_constantsOut.massInverse = 1.0f / mass;
 	}
 
@@ -141,7 +142,7 @@ namespace Animation::Procedural
 
 		// Add damping by scaling position change & update physics position.
 		const SimdFloat4 positionDiff = newPhysicsPosition - currentPos;
-		context->position.current = currentPos + positionDiff * a_constants.dampingFactor;
+		context->position.current = currentPos + positionDiff * a_constants.linearDamping;
 		context->position.previous = currentPos;
 	}
 
@@ -157,19 +158,20 @@ namespace Animation::Procedural
 		const SimdFloat4 dispAxis = SetW(displacement, simd_float4::zero());
 		const SimdFloat4 dispAngle = Swizzle<3, 3, 3, 3>(displacement);
 		const SimdFloat4 springTorque = dispAxis * dispAngle * simd_float4::Load1(stiffness);
-		const SimdFloat4 totalTorque = springTorque;
+		const SimdFloat4 dampingTorque = -context->angularVelocity * a_constants.angularDamping;
+		const SimdFloat4 totalTorque = springTorque + dampingTorque;
 		const SimdFloat4 acceleration = (totalTorque / simd_float4::Load1(momentOfInteria));
 
 		// Quaternion integration.
 		const SimdFloat4 dtSimd = simd_float4::Load1(deltaTime);
-		context->angularVelocity = context->angularVelocity + (acceleration * dtSimd * a_constants.dampingFactor);
+		context->angularVelocity = context->angularVelocity + (acceleration * dtSimd);
 		const SimdFloat4 angleChange = context->angularVelocity * dtSimd;
 
 		const SimdFloat4 changeAngle = Swizzle<0, 0, 0, 0>(Length3(angleChange));
-		const SimdFloat4 changeAxis = NormalizeSafeEst3(angleChange, simd_float4::zero());
+		const SimdFloat4 changeAxis = NormalizeSafe3(angleChange, simd_float4::zero());
 		const SimdQuaternion changeRot = SimdQuaternion::FromAxisAngle(changeAxis, changeAngle);
 		const SimdQuaternion currentRot = context->rotation.current;
-		context->rotation.current = NormalizeEst(currentRot * changeRot);
+		context->rotation.current = Normalize(currentRot * changeRot);
 		context->rotation.previous = currentRot;
 	}
 

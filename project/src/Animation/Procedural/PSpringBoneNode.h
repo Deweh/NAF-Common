@@ -52,7 +52,8 @@ namespace Animation::Procedural
 			ozz::math::SimdFloat4 force;
 			ozz::math::SimdFloat4 restPositionMS;
 			ozz::math::SimdQuaternion restRotationMS;
-			ozz::math::SimdFloat4 dampingFactor;
+			ozz::math::SimdFloat4 linearDamping;
+			ozz::math::SimdFloat4 angularDamping;
 			float massInverse;
 		};
 
