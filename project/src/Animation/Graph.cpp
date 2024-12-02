@@ -110,6 +110,7 @@ namespace Animation
 			if (generator) {
 				generator->SetContext({
 					.modelSpaceCache = loadedData->lastOutput,
+					.prevRootTransform = reinterpret_cast<ozz::math::Float4x4*>(&loadedData->rootNode->previousWorld),
 					.rootTransform = reinterpret_cast<ozz::math::Float4x4*>(&loadedData->rootNode->world),
 					.restPose = &loadedData->restPose,
 					.skeleton = skeleton.get()
@@ -737,6 +738,7 @@ namespace Animation
 			.modelSpaceMatrices = loadedData->lastOutput.data(),
 			.modelSpaceCount = loadedData->lastOutput.size(),
 			.rootMatrix = *reinterpret_cast<ozz::math::Float4x4*>(&loadedData->rootNode->world),
+			.prevRootMatrix = *reinterpret_cast<ozz::math::Float4x4*>(&loadedData->rootNode->previousWorld),
 			.invertedRootMatrix = ozz::math::Invert(ctxt.rootMatrix, &invertible),
 			.skeleton = skeleton->data.get(),
 			.deltaTime = a_deltaTime
@@ -841,6 +843,7 @@ namespace Animation
 			generator = std::move(a_dest);
 			generator->SetContext({
 				.modelSpaceCache = loadedData->lastOutput,
+				.prevRootTransform = reinterpret_cast<ozz::math::Float4x4*>(&loadedData->rootNode->previousWorld),
 				.rootTransform = reinterpret_cast<ozz::math::Float4x4*>(&loadedData->rootNode->world),
 				.restPose = &loadedData->restPose,
 				.skeleton = skeleton.get()

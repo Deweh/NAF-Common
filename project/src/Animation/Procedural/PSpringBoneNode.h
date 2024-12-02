@@ -14,13 +14,13 @@ namespace Animation::Procedural
 		{
 			T current;
 			T previous;
+			ozz::math::SimdFloat4 velocity;
 		};
 
 		struct Context
 		{
 			PhysicsTransform<ozz::math::SimdFloat4> position;
 			PhysicsTransform<ozz::math::SimdQuaternion> rotation;
-			ozz::math::SimdFloat4 angularVelocity;
 			ozz::math::SimdFloat4 accumulatedMovement;
 			ozz::math::SimdFloat4 prevRootVelocity;
 			float deltaTime = 1.0f;
@@ -32,14 +32,14 @@ namespace Animation::Procedural
 		float stiffness;
 		float damping;
 		float mass;
-		float centerOfMassOffsetSq;
 		ozz::math::SimdFloat4 gravity;
 		ozz::math::SimdFloat4 upAxis;
-		const ozz::math::Float4x4* boneTransform;    // Model-space transform.
-		const ozz::math::Float4x4* parentTransform;  // Model-space transform.
-		const ozz::math::Float4x4* rootTransform;    // World-space transform.
-		ozz::math::SimdFloat4* prevRootPos;          // World-space transform.
+		const ozz::math::Float4x4* boneTransform;      // Model-space transform.
+		const ozz::math::Float4x4* parentTransform;    // Model-space transform.
+		const ozz::math::Float4x4* rootTransform;      // World-space transform.
+		const ozz::math::Float4x4* prevRootTransform;  // World-space transform.
 		Context* context;
+		Context* parentContext = nullptr;
 
 		ozz::math::SimdFloat4* positionOutput;  // Local-space transform.
 		ozz::math::SimdQuaternion* rotationOutput; // Local-space transform.
@@ -52,8 +52,7 @@ namespace Animation::Procedural
 			ozz::math::SimdFloat4 force;
 			ozz::math::SimdFloat4 restPositionMS;
 			ozz::math::SimdQuaternion restRotationMS;
-			ozz::math::SimdFloat4 linearDamping;
-			ozz::math::SimdFloat4 angularDamping;
+			ozz::math::SimdFloat4 dampingCoeff;
 			float massInverse;
 		};
 
@@ -61,6 +60,7 @@ namespace Animation::Procedural
 		void ProcessPhysicsStep(const SubStepConstants& a_constants);
 		void ProcessLinearStep(const SubStepConstants& a_constants);
 		void ProcessAngularStep(const SubStepConstants& a_constants);
+		ozz::math::SimdQuaternion CalculateDeltaRotation() const;
 	};
 
 	class PSpringBoneNode : public PNodeT<PSpringBoneNode>

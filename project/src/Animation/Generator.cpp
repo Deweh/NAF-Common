@@ -190,6 +190,7 @@ namespace Animation
 	void ProceduralGenerator::SetContext(const ContextData& a_context)
 	{
 		pGraphInstance.restPose = a_context.restPose;
+		pGraphInstance.prevRootTransform = a_context.prevRootTransform;
 		pGraphInstance.rootTransform = a_context.rootTransform;
 		pGraphInstance.skeleton = a_context.skeleton->data.get();
 		pGraphInstance.modelSpaceCache = a_context.modelSpaceCache;

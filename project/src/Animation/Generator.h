@@ -24,6 +24,7 @@ namespace Animation
 		struct ContextData
 		{
 			std::span<ozz::math::Float4x4> modelSpaceCache;
+			ozz::math::Float4x4* prevRootTransform;
 			ozz::math::Float4x4* rootTransform;
 			PoseCache::Handle* restPose;
 			const OzzSkeleton* skeleton;

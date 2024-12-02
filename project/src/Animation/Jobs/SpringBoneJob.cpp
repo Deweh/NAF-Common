@@ -14,7 +14,7 @@ namespace Animation
 		springJob.boneTransform = &a_context.modelSpaceMatrices[boneIdx];
 		springJob.parentTransform = &a_context.modelSpaceMatrices[boneIdx];
 		springJob.rootTransform = &a_context.rootMatrix;
-		springJob.prevRootPos = &prevRootPos;
+		springJob.prevRootTransform = &a_context.prevRootMatrix;
 		springJob.context = &springContext;
 
 		ozz::math::SimdFloat4 output;

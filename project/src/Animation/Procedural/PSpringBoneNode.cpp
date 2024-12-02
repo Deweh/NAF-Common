@@ -21,26 +21,27 @@ namespace Animation::Procedural
 		if (!context->initialized) {
 			const SimdFloat4& bonePos = boneTransform->cols[3];
 			const SimdQuaternion boneRot = Util::Ozz::ToNormalizedQuaternion(*boneTransform);
+			const SimdFloat4 zero = simd_float4::zero();
 			context->position.current = bonePos;
 			context->position.previous = bonePos;
+			context->position.velocity = zero;
+
 			context->rotation.current = boneRot;
 			context->rotation.previous = boneRot;
-
-			const SimdFloat4 zero = simd_float4::zero();
+			context->rotation.velocity = zero;
+			
 			context->accumulatedMovement = zero;
 			context->prevRootVelocity = zero;
 			context->accumulatedTime = 0.0f;
 			context->movementTime = 0.0f;
-			(*prevRootPos) = rootTransform->cols[3];
 			context->initialized = true;
 		}
 
 		// Get root movement transformed into model-space.
-		const SimdFloat4 relativeRoot = rootTransform->cols[3] - (*prevRootPos);
+		const SimdFloat4 relativeRoot = rootTransform->cols[3] - prevRootTransform->cols[3];
 		const SimdFloat4 worldMovementMS = TransformVector(rootInverseWS, relativeRoot);
 		context->accumulatedMovement = context->accumulatedMovement + worldMovementMS;
 		context->movementTime += context->deltaTime;
-		(*prevRootPos) = rootTransform->cols[3];
 
 		// Add to accumulated time.
 		context->accumulatedTime += context->deltaTime;
@@ -73,6 +74,9 @@ namespace Animation::Procedural
 		}
 
 		if (rotationOutput) {
+			if (GetX(Dot4(context->rotation.previous.xyzw, context->rotation.current.xyzw)) < 0.00001f) {
+				context->rotation.current = -context->rotation.current;
+			}
 			Quaternion q0, q1;
 			StorePtrU(context->rotation.previous.xyzw, &q0.x);
 			StorePtrU(context->rotation.current.xyzw, &q1.x);
@@ -106,8 +110,7 @@ namespace Animation::Procedural
 		a_constantsOut.force = gravityForce + inertiaForce;
 		a_constantsOut.restPositionMS = boneTransform->cols[3];
 		a_constantsOut.restRotationMS = Util::Ozz::ToNormalizedQuaternion(*boneTransform);
-		a_constantsOut.linearDamping = simd_float4::Load1(1.0f - std::clamp(damping, 0.0f, 1.0f));
-		a_constantsOut.angularDamping = simd_float4::Load1((2.0f * std::sqrt(stiffness / mass)) * damping);
+		a_constantsOut.dampingCoeff = simd_float4::Load1((2.0f * std::sqrt(stiffness * mass)) * std::clamp(damping, 0.005f, 1.0f));
 		a_constantsOut.massInverse = 1.0f / mass;
 	}
 
@@ -128,21 +131,18 @@ namespace Animation::Procedural
 		constexpr float dtSquared = deltaTime * deltaTime;
 
 		const ozz::math::SimdFloat4 currentPos = context->position.current;
-		const ozz::math::SimdFloat4 prevPos = context->position.previous;
 
 		// Calculate spring forces.
 		const SimdFloat4 displacement = currentPos - a_constants.restPositionMS;
 		const SimdFloat4 springForce = displacement * simd_float4::Load1(-stiffness);
-		const SimdFloat4 totalForce = springForce + a_constants.force;
+		const SimdFloat4 dampingForce = -context->position.velocity * a_constants.dampingCoeff;
+		const SimdFloat4 totalForce = springForce + dampingForce + a_constants.force;
 		const SimdFloat4 acceleration = totalForce * simd_float4::Load1(a_constants.massInverse);
 
-		// Verlet integration = x(t+dt) = 2x(t) - x(t-dt) + a(t)dt^2
-		const SimdFloat4 deltaTimeSq = simd_float4::Load1(dtSquared);
-		const SimdFloat4 newPhysicsPosition = currentPos * simd_float4::Load1(2.0f) - prevPos + acceleration * deltaTimeSq;
-
-		// Add damping by scaling position change & update physics position.
-		const SimdFloat4 positionDiff = newPhysicsPosition - currentPos;
-		context->position.current = currentPos + positionDiff * a_constants.linearDamping;
+		// Euler integration.
+		const SimdFloat4 dtSimd = simd_float4::Load1(deltaTime);
+		context->position.velocity = context->position.velocity + (acceleration * dtSimd);
+		context->position.current = currentPos + (context->position.velocity * dtSimd);
 		context->position.previous = currentPos;
 	}
 
@@ -153,26 +153,41 @@ namespace Animation::Procedural
 		constexpr float dtSquared = deltaTime * deltaTime;
 		const float momentOfInteria = mass;
 
+		const SimdQuaternion currentRot = context->rotation.current;
+
 		// Calculate spring torques.
-		const SimdFloat4 displacement = ToAxisAngle(Conjugate(context->rotation.current) * a_constants.restRotationMS);
+		SimdQuaternion fromRot = currentRot;
+		if (GetX(Dot4(fromRot.xyzw, a_constants.restRotationMS.xyzw)) < 0.00001f) {
+			fromRot = -fromRot;
+		}
+
+		const SimdFloat4 displacement = ToAxisAngle(Conjugate(fromRot) * a_constants.restRotationMS);
 		const SimdFloat4 dispAxis = SetW(displacement, simd_float4::zero());
 		const SimdFloat4 dispAngle = Swizzle<3, 3, 3, 3>(displacement);
 		const SimdFloat4 springTorque = dispAxis * dispAngle * simd_float4::Load1(stiffness);
-		const SimdFloat4 dampingTorque = -context->angularVelocity * a_constants.angularDamping;
-		const SimdFloat4 totalTorque = springTorque + dampingTorque;
+		const SimdFloat4 dampingTorque = -context->rotation.velocity * a_constants.dampingCoeff;
+		const SimdFloat4 externalTorque = Cross3(a_constants.force, TransformPoint(*parentTransform, upAxis));
+		const SimdFloat4 totalTorque = springTorque + dampingTorque + SetW(externalTorque, simd_float4::zero());
 		const SimdFloat4 acceleration = (totalTorque / simd_float4::Load1(momentOfInteria));
 
 		// Quaternion integration.
 		const SimdFloat4 dtSimd = simd_float4::Load1(deltaTime);
-		context->angularVelocity = context->angularVelocity + (acceleration * dtSimd);
-		const SimdFloat4 angleChange = context->angularVelocity * dtSimd;
-
-		const SimdFloat4 changeAngle = Swizzle<0, 0, 0, 0>(Length3(angleChange));
-		const SimdFloat4 changeAxis = NormalizeSafe3(angleChange, simd_float4::zero());
-		const SimdQuaternion changeRot = SimdQuaternion::FromAxisAngle(changeAxis, changeAngle);
-		const SimdQuaternion currentRot = context->rotation.current;
-		context->rotation.current = Normalize(currentRot * changeRot);
+		context->rotation.velocity = context->rotation.velocity + (acceleration * dtSimd);
+		context->rotation.current = Normalize(currentRot * CalculateDeltaRotation());
 		context->rotation.previous = currentRot;
+	}
+
+	ozz::math::SimdQuaternion SpringPhysicsJob::CalculateDeltaRotation() const
+	{
+		using namespace ozz::math;
+		constexpr float deltaTime = FIXED_TIMESTEP;
+
+		SimdFloat4 halfAngle = context->rotation.velocity * simd_float4::Load1(deltaTime * 0.5f);
+		float length = GetX(Length3(halfAngle));
+		if (length > 0.0f) {
+			halfAngle = halfAngle * simd_float4::Load1(std::sin(length) / length);
+		}
+		return SimdQuaternion{ .xyzw = SetW(halfAngle, simd_float4::Load1(std::cos(length))) };
 	}
 
 	void PSpringBoneNode::AdvanceTime(PNodeInstanceData* a_instanceData, float a_deltaTime)
@@ -220,7 +235,7 @@ namespace Animation::Procedural
 		springJob.boneTransform = &a_evalContext.modelSpaceCache[boneIdx];
 		springJob.parentTransform = &a_evalContext.modelSpaceCache[parentIdx];
 		springJob.rootTransform = a_evalContext.rootTransform;
-		springJob.prevRootPos = &a_evalContext.prevRootPos;
+		springJob.prevRootTransform = a_evalContext.prevRootTransform;
 		springJob.context = &inst->context;
 
 		ozz::math::SimdFloat4 positionOutput;

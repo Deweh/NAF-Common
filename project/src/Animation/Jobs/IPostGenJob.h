@@ -12,6 +12,7 @@ namespace Animation
 			ozz::math::Float4x4* modelSpaceMatrices;
 			uint64_t modelSpaceCount;
 			ozz::math::Float4x4 rootMatrix;
+			ozz::math::Float4x4 prevRootMatrix;
 			ozz::math::Float4x4 invertedRootMatrix;
 			ozz::animation::Skeleton* skeleton;
 			float deltaTime;

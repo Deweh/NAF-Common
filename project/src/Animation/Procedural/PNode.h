@@ -43,8 +43,8 @@ namespace Animation::Procedural
 		PEvaluationContext* lastSyncOwner = nullptr;
 		std::vector<SyncData> syncMap;
 
-		ozz::math::SimdFloat4 prevRootPos;
 		PoseCache::Handle* restPose = nullptr;
+		const ozz::math::Float4x4* prevRootTransform = nullptr;
 		const ozz::math::Float4x4* rootTransform = nullptr;
 		const ozz::animation::Skeleton* skeleton = nullptr;
 		std::span<ozz::math::Float4x4> modelSpaceCache;
