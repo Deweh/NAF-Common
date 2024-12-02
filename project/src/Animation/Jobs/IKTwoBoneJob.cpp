@@ -1,22 +1,22 @@
-#include "IKTwoBoneData.h"
+#include "IKTwoBoneJob.h"
 #include "Util/Ozz.h"
 
 namespace Animation
 {
-	IKTwoBoneData::IKTwoBoneData()
+	IKTwoBoneJob::IKTwoBoneJob()
 	{
 	}
 
-	void IKTwoBoneData::TransitionIn(float a_duration)
+	void IKTwoBoneJob::TransitionIn(float a_duration)
 	{
-		transition.mode = IKTwoBoneData::TransitionMode::kIn;
+		transition.mode = IKTwoBoneJob::TransitionMode::kIn;
 		transition.duration = std::max(a_duration, 0.0001f);
 		transition.currentTime = 0.0f;
 	}
 
-	void IKTwoBoneData::TransitionOut(float a_duration, bool a_delete)
+	void IKTwoBoneJob::TransitionOut(float a_duration, bool a_delete)
 	{
-		transition.mode = IKTwoBoneData::TransitionMode::kOut;
+		transition.mode = IKTwoBoneJob::TransitionMode::kOut;
 		transition.duration = std::max(a_duration, 0.0001f);
 		transition.currentTime = 0.0f;
 
@@ -25,7 +25,7 @@ namespace Animation
 		}
 	}
 
-	void IKTwoBoneData::CalculateJobWeight(float a_deltaTime, ozz::animation::IKTwoBoneJob& a_job)
+	void IKTwoBoneJob::CalculateJobWeight(float a_deltaTime, ozz::animation::IKTwoBoneJob& a_job)
 	{
 		if (transition.mode != TransitionMode::kNone) {
 			transition.currentTime += a_deltaTime;
@@ -45,13 +45,13 @@ namespace Animation
 		}
 	}
 
-	bool IKTwoBoneData::Validate(const ozz::animation::Skeleton* a_skeleton)
+	bool IKTwoBoneJob::Validate(const ozz::animation::Skeleton* a_skeleton)
 	{
 		int num_joints = a_skeleton->num_joints();
 		return start_node < num_joints && mid_node < num_joints && end_node < num_joints;
 	}
 
-	bool IKTwoBoneData::Update(float a_deltaTime,
+	bool IKTwoBoneJob::Update(float a_deltaTime,
 		const std::span<ozz::math::SoaTransform>& a_localOutput,
 		const std::span<ozz::math::Float4x4>& a_modelSpace,
 		const ozz::math::Float4x4& a_invertedRoot,
@@ -102,17 +102,17 @@ namespace Animation
 		return true;
 	}
 
-	uint64_t IKTwoBoneData::ChainIDToGUID(uint8_t a_chainId)
+	uint64_t IKTwoBoneJob::ChainIDToGUID(uint8_t a_chainId)
 	{
 		return START_GUID + static_cast<uint64_t>(a_chainId);
 	}
 
-	uint8_t IKTwoBoneData::GUIDToChainID(uint64_t a_guid)
+	uint8_t IKTwoBoneJob::GUIDToChainID(uint64_t a_guid)
 	{
 		return static_cast<uint8_t>(a_guid - START_GUID);
 	}
 
-	bool IKTwoBoneData::Run(const Context& a_context)
+	bool IKTwoBoneJob::Run(const Context& a_context)
 	{
 		Update(a_context.deltaTime,
 			std::span(a_context.localTransforms, a_context.localCount),
@@ -123,12 +123,12 @@ namespace Animation
 		return flags.none(FLAG::kPendingDelete);
 	}
 
-	uint64_t IKTwoBoneData::GetGUID()
+	uint64_t IKTwoBoneJob::GetGUID()
 	{
 		return ChainIDToGUID(chainId);
 	}
 
-	void IKTwoBoneData::Destroy()
+	void IKTwoBoneJob::Destroy()
 	{
 		delete this;
 	}

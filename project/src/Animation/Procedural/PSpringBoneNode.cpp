@@ -19,9 +19,18 @@ namespace Animation::Procedural
 		}
 
 		if (!context->initialized) {
-			const SimdFloat4& boneMS = boneTransform->cols[3];
-			context->physicsPosition = boneMS;
-			context->previousPosition = boneMS;
+			const SimdFloat4& bonePos = boneTransform->cols[3];
+			const SimdQuaternion boneRot = Util::Ozz::ToNormalizedQuaternion(*boneTransform);
+			context->position.current = bonePos;
+			context->position.previous = bonePos;
+			context->rotation.current = boneRot;
+			context->rotation.previous = boneRot;
+
+			const SimdFloat4 zero = simd_float4::zero();
+			context->accumulatedMovement = zero;
+			context->prevRootVelocity = zero;
+			context->accumulatedTime = 0.0f;
+			context->movementTime = 0.0f;
 			(*prevRootPos) = rootTransform->cols[3];
 			context->initialized = true;
 		}
@@ -54,13 +63,25 @@ namespace Animation::Procedural
 			}
 		}
 
-		// Interpolate between previous step and current step.
+		// Interpolate between previous step and current step, then transform back to local space for final output.
 		const float ratio = context->accumulatedTime > 0.0f ? (context->accumulatedTime / FIXED_TIMESTEP) : 0.0f;
-		const SimdFloat4 interpPosition = Lerp(context->previousPosition, context->physicsPosition, simd_float4::Load1(ratio));
 
-		// Transform back to local space for final output.
-		const SimdFloat4 localPos = TransformPoint(parentInverseMS, interpPosition);
-		*positionOutput = SetW(localPos, simd_float4::zero());
+		if (positionOutput) {
+			const SimdFloat4 interpPosition = Lerp(context->position.previous, context->position.current, simd_float4::Load1(ratio));
+			const SimdFloat4 localPos = TransformPoint(parentInverseMS, interpPosition);
+			*positionOutput = SetW(localPos, simd_float4::zero());
+		}
+
+		if (rotationOutput) {
+			Quaternion q0, q1;
+			StorePtrU(context->rotation.previous.xyzw, &q0.x);
+			StorePtrU(context->rotation.current.xyzw, &q1.x);
+			const Quaternion interpRotation = SLerp(q0, q1, ratio);
+			const SimdQuaternion localRot = SimdQuaternion{ .xyzw = simd_float4::LoadPtrU(&interpRotation.x) } *
+			                                Util::Ozz::ToNormalizedQuaternion(parentInverseMS);
+			*rotationOutput = localRot;
+		}
+		
 		return true;
 	}
 
@@ -81,25 +102,35 @@ namespace Animation::Procedural
 		const SimdFloat4 massSimd = simd_float4::Load1(mass);
 		const SimdFloat4 gravityForce = gravity * massSimd;
 		const SimdFloat4 inertiaForce = -worldAcceleration * massSimd;
-		const float oscillationFreq = std::sqrt(stiffness / mass);
 
 		a_constantsOut.force = gravityForce + inertiaForce;
-		a_constantsOut.restOffsetMS = boneTransform->cols[3];
+		a_constantsOut.restPositionMS = boneTransform->cols[3];
+		a_constantsOut.restRotationMS = Util::Ozz::ToNormalizedQuaternion(*boneTransform);
 		a_constantsOut.dampingFactor = simd_float4::Load1(1.0f - std::clamp(damping, 0.0f, 1.0f));
 		a_constantsOut.massInverse = 1.0f / mass;
 	}
 
 	void SpringPhysicsJob::ProcessPhysicsStep(const SubStepConstants& a_constants)
 	{
+		if (positionOutput) {
+			ProcessLinearStep(a_constants);
+		}
+		if (rotationOutput) {
+			ProcessAngularStep(a_constants);	
+		}
+	}
+
+	void SpringPhysicsJob::ProcessLinearStep(const SubStepConstants& a_constants)
+	{
 		using namespace ozz::math;
 		constexpr float deltaTime = FIXED_TIMESTEP;
 		constexpr float dtSquared = deltaTime * deltaTime;
 
-		const ozz::math::SimdFloat4 currentPos = context->physicsPosition;
-		const ozz::math::SimdFloat4 prevPos = context->previousPosition;
+		const ozz::math::SimdFloat4 currentPos = context->position.current;
+		const ozz::math::SimdFloat4 prevPos = context->position.previous;
 
 		// Calculate spring forces.
-		const SimdFloat4 displacement = currentPos - a_constants.restOffsetMS;
+		const SimdFloat4 displacement = currentPos - a_constants.restPositionMS;
 		const SimdFloat4 springForce = displacement * simd_float4::Load1(-stiffness);
 		const SimdFloat4 totalForce = springForce + a_constants.force;
 		const SimdFloat4 acceleration = totalForce * simd_float4::Load1(a_constants.massInverse);
@@ -110,8 +141,36 @@ namespace Animation::Procedural
 
 		// Add damping by scaling position change & update physics position.
 		const SimdFloat4 positionDiff = newPhysicsPosition - currentPos;
-		context->physicsPosition = currentPos + positionDiff * a_constants.dampingFactor;
-		context->previousPosition = currentPos;
+		context->position.current = currentPos + positionDiff * a_constants.dampingFactor;
+		context->position.previous = currentPos;
+	}
+
+	void SpringPhysicsJob::ProcessAngularStep(const SubStepConstants& a_constants)
+	{
+		using namespace ozz::math;
+		constexpr float deltaTime = FIXED_TIMESTEP;
+		constexpr float dtSquared = deltaTime * deltaTime;
+		const float momentOfInteria = mass;
+
+		// Calculate spring torques.
+		const SimdFloat4 displacement = ToAxisAngle(Conjugate(context->rotation.current) * a_constants.restRotationMS);
+		const SimdFloat4 dispAxis = SetW(displacement, simd_float4::zero());
+		const SimdFloat4 dispAngle = Swizzle<3, 3, 3, 3>(displacement);
+		const SimdFloat4 springTorque = dispAxis * dispAngle * simd_float4::Load1(stiffness);
+		const SimdFloat4 totalTorque = springTorque;
+		const SimdFloat4 acceleration = (totalTorque / simd_float4::Load1(momentOfInteria));
+
+		// Quaternion integration.
+		const SimdFloat4 dtSimd = simd_float4::Load1(deltaTime);
+		context->angularVelocity = context->angularVelocity + (acceleration * dtSimd * a_constants.dampingFactor);
+		const SimdFloat4 angleChange = context->angularVelocity * dtSimd;
+
+		const SimdFloat4 changeAngle = Swizzle<0, 0, 0, 0>(Length3(angleChange));
+		const SimdFloat4 changeAxis = NormalizeSafeEst3(angleChange, simd_float4::zero());
+		const SimdQuaternion changeRot = SimdQuaternion::FromAxisAngle(changeAxis, changeAngle);
+		const SimdQuaternion currentRot = context->rotation.current;
+		context->rotation.current = NormalizeEst(currentRot * changeRot);
+		context->rotation.previous = currentRot;
 	}
 
 	void PSpringBoneNode::AdvanceTime(PNodeInstanceData* a_instanceData, float a_deltaTime)
@@ -155,7 +214,7 @@ namespace Animation::Procedural
 		springJob.damping = damping;
 		springJob.mass = mass;
 		springJob.gravity = ozz::math::simd_float4::Load3PtrU(&gravity.x);
-
+		springJob.upAxis = ozz::math::simd_float4::Load3PtrU(&upAxis.x);
 		springJob.boneTransform = &a_evalContext.modelSpaceCache[boneIdx];
 		springJob.parentTransform = &a_evalContext.modelSpaceCache[parentIdx];
 		springJob.rootTransform = a_evalContext.rootTransform;
@@ -163,18 +222,34 @@ namespace Animation::Procedural
 		springJob.context = &inst->context;
 
 		ozz::math::SimdFloat4 positionOutput;
-		springJob.positionOutput = &positionOutput;
+		ozz::math::SimdQuaternion rotationOutput;
+		springJob.positionOutput = isLinear ? &positionOutput : nullptr;
+		springJob.rotationOutput = isAngular ? &rotationOutput : nullptr;
 
 		if (!springJob.Run())
 			return output;
 
-		Util::Ozz::ApplySoATransformTranslation(boneIdx, positionOutput, outputSpan);
+		if (isLinear) {
+			Util::Ozz::ApplySoATransformTranslation(boneIdx, positionOutput, outputSpan);
+		}
+
+		if (isAngular) {
+			Util::Ozz::ApplySoATransformQuaternion(boneIdx, rotationOutput, outputSpan);
+		}
+		
 		return output;
 	}
 
 	bool PSpringBoneNode::SetCustomValues(const std::span<PEvaluationResult>& a_values, const std::string_view a_skeleton)
 	{
 		const RE::BSFixedString& boneName = std::get<RE::BSFixedString>(a_values[0]);
+		upAxis = {
+			std::get<float>(a_values[1]),
+			std::get<float>(a_values[2]),
+			std::get<float>(a_values[3]),
+		};
+		isLinear = std::get<bool>(a_values[4]);
+		isAngular = std::get<bool>(a_values[5]);
 
 		std::array<std::string_view, 1> nodeNames = { boneName.c_str() };
 		auto skeleton = Settings::GetSkeleton(std::string{ a_skeleton });
@@ -189,8 +264,9 @@ namespace Animation::Procedural
 		if (sParent == ozz::animation::Skeleton::kNoParent) {
 			return false;
 		}
-
 		parentIdx = sParent;
+
+
 		return true;
 	}
 }

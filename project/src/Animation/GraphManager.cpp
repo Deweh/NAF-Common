@@ -366,7 +366,7 @@ namespace Animation
 				PERF_TIMER_END(start, baseUpdateTime);
 
 				std::unique_lock gl{ g->lock };
-				PERF_TIMER_COPY_VALUE(baseUpdateTime, g->baseUpdateMS);
+				PERF_TIMER_COPY_VALUE(baseUpdateTime, g->baseUpdateMs);
 				g->Update(a_updateData->timeDelta, !modelCulled, nullptr);
 
 				if (g->GetRequiresDetach()) {

@@ -7,6 +7,7 @@
 #include "Util/Ozz.h"
 #include "Sequencer.h"
 #include "GraphManager.h"
+#include "Jobs/IKTwoBoneJob.h"
 
 namespace Animation
 {
@@ -232,7 +233,7 @@ namespace Animation
 
 	bool Graph::AddTwoBoneIKJob(uint8_t a_chainId, const std::span<std::string_view, 3> a_nodeNames, const RE::NiPoint3& a_targetWorld, const RE::NiPoint3& a_poleDirModel, float a_transitionTime)
 	{
-		uint64_t newGuid = IKTwoBoneData::ChainIDToGUID(a_chainId);
+		uint64_t newGuid = IKTwoBoneJob::ChainIDToGUID(a_chainId);
 		for (auto& j : postGenJobs) {
 			if (j->GetGUID() == newGuid) {
 				return false;
@@ -247,7 +248,7 @@ namespace Animation
 			return false;
 		}
 
-		auto d = new IKTwoBoneData();
+		auto d = new IKTwoBoneJob();
 		d->target = a_targetWorld;
 		d->poleDir = a_poleDirModel;
 		d->start_node = nodeIdxs[0];
@@ -261,10 +262,10 @@ namespace Animation
 
 	bool Graph::RemoveTwoBoneIKJob(uint8_t a_chainId, float a_transitionTime)
 	{
-		uint64_t targetGuid = IKTwoBoneData::ChainIDToGUID(a_chainId);
+		uint64_t targetGuid = IKTwoBoneJob::ChainIDToGUID(a_chainId);
 		for (auto& j : postGenJobs) {
 			if (j->GetGUID() == targetGuid) {
-				static_cast<IKTwoBoneData*>(j)->TransitionOut(a_transitionTime, true);
+				static_cast<IKTwoBoneJob*>(j)->TransitionOut(a_transitionTime, true);
 				return true;
 			}
 		}

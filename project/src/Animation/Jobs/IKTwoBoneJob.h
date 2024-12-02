@@ -1,10 +1,10 @@
 #pragma once
-#include "Easing.h"
+#include "Animation/Easing.h"
 #include "IPostGenJob.h"
 
 namespace Animation
 {
-	struct IKTwoBoneData : public IPostGenJob
+	struct IKTwoBoneJob : public IPostGenJob
 	{
 		static constexpr size_t START_GUID{ 0 };
 
@@ -44,7 +44,7 @@ namespace Animation
 		uint8_t chainId;
 		bool targetWithinRange = false;
 
-		IKTwoBoneData();
+		IKTwoBoneJob();
 
 		void TransitionIn(float a_duration);
 		void TransitionOut(float a_duration, bool a_delete);

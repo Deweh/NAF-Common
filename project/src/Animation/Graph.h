@@ -4,14 +4,13 @@
 #include "Easing.h"
 #include "Node.h"
 #include "Ozz.h"
-#include "IKTwoBoneData.h"
 #include "FileManager.h"
 #include "SyncInstance.h"
 #include "Face/Manager.h"
 #include "PoseCache.h"
 #include "Sequencer.h"
 #include "IAnimEventHandler.h"
-#include "IPostGenJob.h"
+#include "Jobs/IPostGenJob.h"
 
 namespace Animation
 {
