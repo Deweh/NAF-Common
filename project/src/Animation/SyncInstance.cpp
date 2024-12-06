@@ -3,10 +3,33 @@
 
 namespace Animation
 {
+	void SyncInstance::InstData::GraphRef::reset()
+	{
+		ptr = nullptr;
+		handle.reset();
+	}
+
+	std::shared_ptr<Graph> SyncInstance::InstData::GraphRef::lock() const
+	{
+		return handle.lock();
+	}
+
+	bool SyncInstance::InstData::GraphRef::operator==(const Graph* a_rhs) const
+	{
+		return ptr == a_rhs;
+	}
+
+	void SyncInstance::InstData::GraphRef::operator=(Graph* a_rhs)
+	{
+		ptr = a_rhs;
+		handle = std::static_pointer_cast<Graph>(a_rhs->shared_from_this());
+	}
+
 	bool SyncInstance::Synchronize(Graph* a_grph, const std::function<void(Graph*, bool)>& a_visitFunc)
 	{
+		std::shared_ptr<Graph> owner;
 		auto d = data.lock();
-		std::shared_ptr<Graph> owner = d->owner.lock();
+		owner = d->owner.lock();
 		if (!owner)
 			return false;
 
@@ -30,28 +53,28 @@ namespace Animation
 		return true;
 	}
 
-	void SyncInstance::ExchangeOwner(const std::function<Graph*(Graph*)>& a_exchangeFunc)
+	void SyncInstance::AddMember(Graph* a_grph, bool a_addAsOwner)
 	{
 		auto d = data.lock();
-		std::shared_ptr<Graph> currentOwner = d->owner.lock();
-		Graph* newOwner = a_exchangeFunc(currentOwner.get());
-
-		if (newOwner != currentOwner.get()) {
-			if (newOwner) {
-				d->owner = std::static_pointer_cast<Graph>(newOwner->shared_from_this());
-			} else {
-				d->owner.reset();
-			}
+		auto iter = std::find(d->members.begin(), d->members.end(), a_grph);
+		if (iter == d->members.end()) {
+			auto& newMember = d->members.emplace_back();
+			newMember = a_grph;
 		}
-	}
-
-	void SyncInstance::AddMember(Graph* a_grph)
-	{
-		data.lock()->memberHandles.emplace(a_grph, std::static_pointer_cast<Graph>(a_grph->shared_from_this()));
+		if (a_addAsOwner) {
+			d->owner = a_grph;
+		}
 	}
 
 	void SyncInstance::RemoveMember(Graph* a_grph)
 	{
-		data.lock()->memberHandles.erase(a_grph);
+		auto d = data.lock();
+		auto iter = std::find(d->members.begin(), d->members.end(), a_grph);
+		if (iter != d->members.end()) {
+			d->members.erase(iter);
+		}
+		if (d->owner == a_grph) {
+			d->owner.reset();
+		}
 	}
 }

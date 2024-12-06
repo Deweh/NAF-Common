@@ -37,6 +37,56 @@ namespace Animation::Procedural
 	};
 	*/
 
+	class PLocalToModelNode : public PNodeT<PLocalToModelNode>
+	{
+	public:
+		uint16_t parentBoneIdx;
+
+		virtual PEvaluationResult Evaluate(PNodeInstanceData* a_instanceData, PoseCache& a_poseCache, PEvaluationContext& a_evalContext) override
+		{
+			using namespace ozz::math;
+			const auto pose = std::get<PoseCache::Handle>(a_evalContext.results[inputs[0]]).get();
+			const Float4 vec = std::get<Float4>(a_evalContext.results[inputs[1]]);
+
+			a_evalContext.UpdateModelSpaceCache(pose, ozz::animation::Skeleton::kNoParent, parentBoneIdx);
+			const SimdFloat4 modelSpace = TransformPoint(a_evalContext.modelSpaceCache[parentBoneIdx], simd_float4::Load3PtrU(&vec.x));
+
+			Float4 result;
+			StorePtrU(modelSpace, &result.x);
+			return result;
+		}
+
+		virtual bool SetCustomValues(const std::span<PEvaluationResult>& a_values, const std::string_view a_skeleton) override
+		{
+			const RE::BSFixedString& boneName = std::get<RE::BSFixedString>(a_values[0]);
+
+			std::array<int32_t, 1> idxs;
+			std::array<std::string_view, 1> names = { boneName.c_str() };
+			auto skele = Settings::GetSkeleton(std::string{ a_skeleton });
+
+			if (!Util::Ozz::GetJointIndexes(skele->data.get(), names, idxs)) {
+				return false;
+			}
+
+			parentBoneIdx = idxs[0];
+
+			return true;
+		}
+
+		inline static Registration _reg{
+			"local_to_model",
+			{
+				{ "pose", PEvaluationType<PoseCache::Handle> },
+				{ "vec", PEvaluationType<ozz::math::Float4> }
+			},
+			{
+				{ "parentBone", PEvaluationType<RE::BSFixedString> },
+			},
+			PEvaluationType<ozz::math::Float4>,
+			CreateNodeOfType<PLocalToModelNode>
+		};
+	};
+
 	class PGetBoneRotationNode : public PNodeT<PGetBoneRotationNode>
 	{
 	public:

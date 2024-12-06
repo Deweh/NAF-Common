@@ -21,17 +21,27 @@ namespace Animation
 
 		struct InstData
 		{
-			std::weak_ptr<Graph> owner;
+			struct GraphRef
+			{
+				Graph* ptr = nullptr;
+				std::weak_ptr<Graph> handle;
+
+				void reset();
+				std::shared_ptr<Graph> lock() const;
+				bool operator==(const Graph* a_rhs) const;
+				void operator=(Graph* a_rhs);
+			};
+
+			GraphRef owner;
 			std::vector<Graph*> updatedGraphs;
-			std::map<Graph*, std::weak_ptr<Graph>> memberHandles;
+			std::vector<GraphRef> members;
 			bool ownerUpdatedThisFrame = false;
 		};
 
 		Util::Guarded<InstData> data;
 
 		bool Synchronize(Graph* a_grph, const std::function<void(Graph*, bool)>& a_visitFunc);
-		void ExchangeOwner(const std::function<Graph*(Graph*)>& a_exchangeFunc);
-		void AddMember(Graph* a_grph);
+		void AddMember(Graph* a_grph, bool a_addAsOwner);
 		void RemoveMember(Graph* a_grph);
 	};
 }

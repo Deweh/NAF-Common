@@ -301,10 +301,7 @@ namespace Animation
 		if (!syncInst) {
 			syncInst = std::make_shared<SyncInstance>();
 		}
-		syncInst->ExchangeOwner([this](Graph* owner) -> Graph* {
-			return this;
-		});
-		syncInst->AddMember(this);
+		syncInst->AddMember(this, true);
 	}
 
 	void Graph::SyncToGraph(Graph* a_grph)
@@ -312,20 +309,13 @@ namespace Animation
 		StopSyncing();
 		syncInst = a_grph->syncInst;
 		if (syncInst) {
-			syncInst->AddMember(this);
+			syncInst->AddMember(this, false);
 		}
 	}
 
 	void Graph::StopSyncing()
 	{
 		if (syncInst) {
-			syncInst->ExchangeOwner([this](Graph* owner) -> Graph* {
-				if (owner == this) {
-					return nullptr;
-				} else {
-					return owner;
-				}
-			});
 			syncInst->RemoveMember(this);
 		}
 		syncInst.reset();
