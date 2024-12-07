@@ -206,30 +206,32 @@ namespace Util::Ozz
 		return *reinterpret_cast<RE::NiTransform*>(&a_matrix);
 	}
 
-	inline bool GetJointIndexes(const ozz::animation::Skeleton* a_skeleton, const std::span<std::string_view>& a_targetNames, const std::span<int32_t>& a_indexesOut)
+	template <typename... Args>
+	inline std::optional<std::array<uint16_t, sizeof...(Args)>> GetJointIndexes(const ozz::animation::Skeleton* a_skeleton, Args... a_targetNames)
 	{
-		if (a_targetNames.size() != a_indexesOut.size())
-			return false;
+		constexpr size_t numArgs = sizeof...(Args);
+		std::array<std::string_view, numArgs> strings = { a_targetNames... };
+		std::array<uint16_t, sizeof...(Args)> result;
 
-		for (auto& i : a_indexesOut) {
-			i = -1;
+		for (size_t i = 0; i < numArgs; i++) {
+			result[i] = std::numeric_limits<uint16_t>::max();
 		}
 
 		const auto jointNames = a_skeleton->joint_names();
 		for (auto iter = jointNames.begin(); iter != jointNames.end(); iter++) {
-			for (size_t i = 0; i < a_targetNames.size(); i++) {
-				if (Util::String::CaseInsensitiveCompare(a_targetNames[i], *iter)) {
-					a_indexesOut[i] = std::distance(jointNames.begin(), iter);
+			for (size_t i = 0; i < numArgs; i++) {
+				if (Util::String::CaseInsensitiveCompare(strings[i], *iter)) {
+					result[i] = std::distance(jointNames.begin(), iter);
 				}
 			}
 		}
 
-		for (size_t i = 0; i < a_targetNames.size(); i++) {
-			if (a_indexesOut[i] < 0) {
-				return false;
+		for (size_t i = 0; i < numArgs; i++) {
+			if (result[i] == std::numeric_limits<uint16_t>::max()) {
+				return std::nullopt;
 			}
 		}
-		return true;
+		return result;
 	}
 
 #ifdef TARGET_GAME_F4

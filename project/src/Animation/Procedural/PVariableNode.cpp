@@ -20,7 +20,7 @@ namespace Animation::Procedural
 		static_cast<InstanceData*>(a_instanceData)->value = static_cast<InstanceData*>(a_ownerInstance)->value;
 	}
 
-	bool PVariableNode::SetCustomValues(const std::span<PEvaluationResult>& a_values, const std::string_view a_skeleton)
+	bool PVariableNode::SetCustomValues(const std::span<PEvaluationResult>& a_values, const OzzSkeleton* a_skeleton, const std::filesystem::path& a_localDir)
 	{
 		name = std::get<RE::BSFixedString>(a_values[0]);
 		defaultValue = std::get<float>(a_values[1]);

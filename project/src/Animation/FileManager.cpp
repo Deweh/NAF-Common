@@ -156,7 +156,8 @@ namespace Animation
 	std::shared_ptr<Procedural::PGraph> FileManager::DoLoadBlendGraph(const AnimID& a_id)
 	{
 		auto start = Util::Timing::HighResTimeNow();
-		auto result = Serialization::BlendGraphImport::LoadGraph(Util::String::GetDataPath() / a_id.file.QPath(), a_id.skeleton);
+		const std::filesystem::path localPath = a_id.file.QPath();
+		auto result = Serialization::BlendGraphImport::LoadGraph(Util::String::GetDataPath() / localPath, localPath.parent_path(), a_id.skeleton);
 		if (result) {
 			result->extra.loadTime = Util::Timing::HighResTimeDiffMilliSec(start);
 			result->extra.id = a_id;

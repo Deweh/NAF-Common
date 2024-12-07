@@ -9,7 +9,7 @@ namespace Animation::Procedural
 		return std::clamp(result, newMin, newMax);
 	}
 
-	bool PTransformRangeNode::SetCustomValues(const std::span<PEvaluationResult>& a_values, const std::string_view a_skeleton)
+	bool PTransformRangeNode::SetCustomValues(const std::span<PEvaluationResult>& a_values, const OzzSkeleton* a_skeleton, const std::filesystem::path& a_localDir)
 	{
 		oldMin = std::get<float>(a_values[0]);
 		float oldMax = std::get<float>(a_values[1]);

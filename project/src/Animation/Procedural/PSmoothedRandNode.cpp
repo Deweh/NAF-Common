@@ -57,7 +57,7 @@ namespace Animation::Procedural
 		}
 	}
 
-	bool PSmoothedRandNode::SetCustomValues(const std::span<PEvaluationResult>& a_values, const std::string_view a_skeleton)
+	bool PSmoothedRandNode::SetCustomValues(const std::span<PEvaluationResult>& a_values, const OzzSkeleton* a_skeleton, const std::filesystem::path& a_localDir)
 	{
 		durMin = std::get<float>(a_values[0]);
 		durMax = std::get<float>(a_values[1]);

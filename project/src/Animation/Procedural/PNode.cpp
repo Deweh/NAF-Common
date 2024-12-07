@@ -45,7 +45,7 @@ namespace Animation::Procedural
 	{
 	}
 
-	bool PNode::SetCustomValues(const std::span<PEvaluationResult>& a_values, const std::string_view a_skeleton)
+	bool PNode::SetCustomValues(const std::span<PEvaluationResult>& a_values, const OzzSkeleton* a_skeleton, const std::filesystem::path& a_localDir)
 	{
 		return true;
 	}

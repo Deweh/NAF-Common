@@ -50,11 +50,13 @@ namespace Animation::Procedural
 		}
 	}
 
-	bool PFullAnimationNode::SetCustomValues(const std::span<PEvaluationResult>& a_values, const std::string_view a_skeleton)
+	bool PFullAnimationNode::SetCustomValues(const std::span<PEvaluationResult>& a_values, const OzzSkeleton* a_skeleton, const std::filesystem::path& a_localDir)
 	{
-		auto file = FileID{ std::get<RE::BSFixedString>(a_values[0]), "" };
+		std::filesystem::path fullPath = a_localDir;
+		fullPath /= std::get<RE::BSFixedString>(a_values[0]).c_str();
+		auto file = FileID{ fullPath.generic_string(), "" };
 		syncId = std::get<uint64_t>(a_values[1]);
-		auto loadedFile = Animation::FileManager::GetSingleton()->DemandAnimation(file, a_skeleton, true);
+		auto loadedFile = Animation::FileManager::GetSingleton()->DemandAnimation(file, a_skeleton->name, true);
 		if (loadedFile == nullptr) {
 			return false;
 		}

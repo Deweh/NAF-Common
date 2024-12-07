@@ -3,6 +3,8 @@
 #include "Animation/Procedural/PActorNode.h"
 #include "Animation/Procedural/PFullAnimationNode.h"
 #include "Animation/Procedural/PBasePoseNode.h"
+#include "Animation/Ozz.h"
+#include "Settings/Settings.h"
 
 namespace Serialization
 {
@@ -30,9 +32,10 @@ namespace Serialization
 		}
 	}
 
-	std::unique_ptr<Animation::Procedural::PGraph> BlendGraphImport::LoadGraph(const std::filesystem::path& a_filePath, const std::string_view a_skeleton)
+	std::unique_ptr<Animation::Procedural::PGraph> BlendGraphImport::LoadGraph(const std::filesystem::path& a_filePath, const std::filesystem::path& a_localDir, const std::string_view a_skeleton)
 	{
 		std::unique_ptr<PGraph> result;
+		std::shared_ptr<const Animation::OzzSkeleton> fullSkeleton = Settings::GetSkeleton(std::string{ a_skeleton });
 		try {
 			simdjson::ondemand::parser parser;
 			auto jsonString = simdjson::padded_string::load(a_filePath.generic_string());
@@ -113,7 +116,7 @@ namespace Serialization
 							break;
 						}
 					}
-					if (!currentNode->SetCustomValues(values, a_skeleton)) {
+					if (!currentNode->SetCustomValues(values, fullSkeleton.get(), a_localDir)) {
 						throw std::runtime_error{ std::format("Failed to process custom value(s) for '{}' node.", typeInfo->typeName) };
 					}
 				}

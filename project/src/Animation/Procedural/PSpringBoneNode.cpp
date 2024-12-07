@@ -257,7 +257,7 @@ namespace Animation::Procedural
 		return output;
 	}
 
-	bool PSpringBoneNode::SetCustomValues(const std::span<PEvaluationResult>& a_values, const std::string_view a_skeleton)
+	bool PSpringBoneNode::SetCustomValues(const std::span<PEvaluationResult>& a_values, const OzzSkeleton* a_skeleton, const std::filesystem::path& a_localDir)
 	{
 		const RE::BSFixedString& boneName = std::get<RE::BSFixedString>(a_values[0]);
 		upAxis = {
@@ -268,21 +268,18 @@ namespace Animation::Procedural
 		isLinear = std::get<bool>(a_values[4]);
 		isAngular = std::get<bool>(a_values[5]);
 
-		std::array<std::string_view, 1> nodeNames = { boneName.c_str() };
-		auto skeleton = Settings::GetSkeleton(std::string{ a_skeleton });
+		const auto idxs = Util::Ozz::GetJointIndexes(a_skeleton->data.get(), boneName.c_str());
 
-		std::array<int32_t, 1> nodeIdxs;
-		if (!Util::Ozz::GetJointIndexes(skeleton->data.get(), nodeNames, nodeIdxs)) {
+		if (!idxs.has_value()) {
 			return false;
 		}
 
-		boneIdx = nodeIdxs[0];
-		int sParent = skeleton->data->joint_parents()[boneIdx];
+		boneIdx = idxs->at(0);
+		int sParent = a_skeleton->data->joint_parents()[boneIdx];
 		if (sParent == ozz::animation::Skeleton::kNoParent) {
 			return false;
 		}
 		parentIdx = sParent;
-
 
 		return true;
 	}

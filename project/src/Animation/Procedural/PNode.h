@@ -92,7 +92,7 @@ namespace Animation::Procedural
 		virtual PEvaluationResult Evaluate(PNodeInstanceData* a_instanceData, PoseCache& a_poseCache, PEvaluationContext& a_evalContext) = 0;
 		virtual void AdvanceTime(PNodeInstanceData* a_instanceData, float a_deltaTime);
 		virtual void Synchronize(PNodeInstanceData* a_instanceData, PNodeInstanceData* a_ownerInstance, float a_correctionDelta);
-		virtual bool SetCustomValues(const std::span<PEvaluationResult>& a_values, const std::string_view a_skeleton);
+		virtual bool SetCustomValues(const std::span<PEvaluationResult>& a_values, const OzzSkeleton* a_skeleton, const std::filesystem::path& a_localDir);
 		virtual Registration* GetTypeInfo();
 		virtual size_t GetSizeBytes();
 		virtual ~PNode() = default;

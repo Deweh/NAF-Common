@@ -57,7 +57,7 @@ namespace Animation::Procedural
 		return output;
 	}
 
-	bool PTwoBoneIKAdjustNode::SetCustomValues(const std::span<PEvaluationResult>& a_values, const std::string_view a_skeleton)
+	bool PTwoBoneIKAdjustNode::SetCustomValues(const std::span<PEvaluationResult>& a_values, const OzzSkeleton* a_skeleton, const std::filesystem::path& a_localDir)
 	{
 		const RE::BSFixedString startName = std::get<RE::BSFixedString>(a_values[0]);
 		const RE::BSFixedString midName = std::get<RE::BSFixedString>(a_values[1]);
@@ -67,21 +67,15 @@ namespace Animation::Procedural
 		const float midZ = std::get<float>(a_values[5]);
 		midAxis = ozz::math::Float3(midX, midY, midZ);
 
-		std::array<std::string_view, 3> nodeNames = {
-			startName.c_str(),
-			midName.c_str(),
-			endName.c_str()
-		};
+		const auto idxs = Util::Ozz::GetJointIndexes(a_skeleton->data.get(), startName.c_str(), midName.c_str(), endName.c_str());
 
-		auto skeleton = Settings::GetSkeleton(std::string{ a_skeleton });
-
-		std::array<int32_t, 3> nodeIdxs;
-		if (!Util::Ozz::GetJointIndexes(skeleton->data.get(), nodeNames, nodeIdxs))
+		if (!idxs.has_value()) {
 			return false;
+		}
 
-		startNode = nodeIdxs[0];
-		midNode = nodeIdxs[1];
-		endNode = nodeIdxs[2];
+		startNode = idxs->at(0);
+		midNode = idxs->at(1);
+		endNode = idxs->at(2);
 		return true;
 	}
 }

@@ -28,7 +28,7 @@ namespace Animation::Procedural
 		static_cast<InstanceData*>(a_instanceData)->timeStep = a_deltaTime;
 	}
 
-	bool PSmoothValNode::SetCustomValues(const std::span<PEvaluationResult>& a_values, const std::string_view a_skeleton)
+	bool PSmoothValNode::SetCustomValues(const std::span<PEvaluationResult>& a_values, const OzzSkeleton* a_skeleton, const std::filesystem::path& a_localDir)
 	{
 		percentPerSec = std::clamp(std::get<float>(a_values[0]), 0.0f, 1.0f);
 		return true;

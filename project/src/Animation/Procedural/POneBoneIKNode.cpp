@@ -43,7 +43,7 @@ namespace Animation::Procedural
 		return output;
 	}
 
-	bool POneBoneIKNode::SetCustomValues(const std::span<PEvaluationResult>& a_values, const std::string_view a_skeleton)
+	bool POneBoneIKNode::SetCustomValues(const std::span<PEvaluationResult>& a_values, const OzzSkeleton* a_skeleton, const std::filesystem::path& a_localDir)
 	{
 		const RE::BSFixedString boneName = std::get<RE::BSFixedString>(a_values[0]);
 		upAxis = {
@@ -57,15 +57,13 @@ namespace Animation::Procedural
 			std::get<float>(a_values[6]),
 		};
 
-		std::array<std::string_view, 1> nodeNames = { boneName.c_str() };
-		auto skeleton = Settings::GetSkeleton(std::string{ a_skeleton });
+		const auto idxs = Util::Ozz::GetJointIndexes(a_skeleton->data.get(), boneName.c_str());
 
-		std::array<int32_t, 1> nodeIdxs;
-		if (!Util::Ozz::GetJointIndexes(skeleton->data.get(), nodeNames, nodeIdxs)) {
+		if (!idxs.has_value()) {
 			return false;
 		}
 
-		boneIdx = nodeIdxs[0];
+		boneIdx = idxs->at(0);
 		return true;
 	}
 }

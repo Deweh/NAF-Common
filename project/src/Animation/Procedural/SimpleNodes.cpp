@@ -56,19 +56,16 @@ namespace Animation::Procedural
 			return result;
 		}
 
-		virtual bool SetCustomValues(const std::span<PEvaluationResult>& a_values, const std::string_view a_skeleton) override
+		virtual bool SetCustomValues(const std::span<PEvaluationResult>& a_values, const OzzSkeleton* a_skeleton, const std::filesystem::path& a_localDir) override
 		{
 			const RE::BSFixedString& boneName = std::get<RE::BSFixedString>(a_values[0]);
+			const auto idxs = Util::Ozz::GetJointIndexes(a_skeleton->data.get(), boneName.c_str());
 
-			std::array<int32_t, 1> idxs;
-			std::array<std::string_view, 1> names = { boneName.c_str() };
-			auto skele = Settings::GetSkeleton(std::string{ a_skeleton });
-
-			if (!Util::Ozz::GetJointIndexes(skele->data.get(), names, idxs)) {
+			if (!idxs.has_value()) {
 				return false;
 			}
 
-			parentBoneIdx = idxs[0];
+			parentBoneIdx = idxs->at(0);
 
 			return true;
 		}
@@ -111,20 +108,18 @@ namespace Animation::Procedural
 			
 		}
 
-		virtual bool SetCustomValues(const std::span<PEvaluationResult>& a_values, const std::string_view a_skeleton) override
+		virtual bool SetCustomValues(const std::span<PEvaluationResult>& a_values, const OzzSkeleton* a_skeleton, const std::filesystem::path& a_localDir) override
 		{
 			const RE::BSFixedString& boneName = std::get<RE::BSFixedString>(a_values[0]);
 			isModelSpace = std::get<bool>(a_values[1]);
 
-			std::array<int32_t, 1> idxs;
-			std::array<std::string_view, 1> names = { boneName.c_str() };
-			auto skele = Settings::GetSkeleton(std::string{ a_skeleton });
+			const auto idxs = Util::Ozz::GetJointIndexes(a_skeleton->data.get(), boneName.c_str());
 
-			if (!Util::Ozz::GetJointIndexes(skele->data.get(), names, idxs)) {
+			if (!idxs.has_value()) {
 				return false;
 			}
 
-			boneIdx = idxs[0];
+			boneIdx = idxs->at(0);
 
 			return true;
 		}
@@ -167,20 +162,18 @@ namespace Animation::Procedural
 			
 		}
 
-		virtual bool SetCustomValues(const std::span<PEvaluationResult>& a_values, const std::string_view a_skeleton) override
+		virtual bool SetCustomValues(const std::span<PEvaluationResult>& a_values, const OzzSkeleton* a_skeleton, const std::filesystem::path& a_localDir) override
 		{
 			const RE::BSFixedString& boneName = std::get<RE::BSFixedString>(a_values[0]);
 			isModelSpace = std::get<bool>(a_values[1]);
 
-			std::array<int32_t, 1> idxs;
-			std::array<std::string_view, 1> names = { boneName.c_str() };
-			auto skele = Settings::GetSkeleton(std::string{ a_skeleton });
+			const auto idxs = Util::Ozz::GetJointIndexes(a_skeleton->data.get(), boneName.c_str());
 
-			if (!Util::Ozz::GetJointIndexes(skele->data.get(), names, idxs)) {
+			if (!idxs.has_value()) {
 				return false;
 			}
 
-			boneIdx = idxs[0];
+			boneIdx = idxs->at(0);
 
 			return true;
 		}
@@ -209,7 +202,7 @@ namespace Animation::Procedural
 			return vec;
 		}
 
-		virtual bool SetCustomValues(const std::span<PEvaluationResult>& a_values, const std::string_view a_skeleton) override
+		virtual bool SetCustomValues(const std::span<PEvaluationResult>& a_values, const OzzSkeleton* a_skeleton, const std::filesystem::path& a_localDir) override
 		{
 			vec.x = std::get<float>(a_values[0]);
 			vec.y = std::get<float>(a_values[1]);
