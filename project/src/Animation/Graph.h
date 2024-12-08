@@ -11,6 +11,7 @@
 #include "Sequencer.h"
 #include "IAnimEventHandler.h"
 #include "Jobs/IPostGenJob.h"
+#include "Physics/ModelSpaceSystem.h"
 
 namespace Animation
 {
@@ -87,8 +88,9 @@ namespace Animation
 			PoseCache::Handle blendedPose;
 			std::shared_ptr<Face::MorphData> faceMorphData = nullptr;
 #ifdef TARGET_GAME_SF
-			std::unique_ptr<EyeTrackingData> eyeTrackData;
+			std::unique_ptr<EyeTrackingData> eyeTrackData = nullptr;
 #endif
+			std::unique_ptr<Physics::ModelSpaceSystem> physSystem = nullptr;
 			NiSkeletonRootNode* rootNode = nullptr;
 			RE::BSFaceGenAnimationData* faceAnimData = nullptr;
 		};
@@ -136,6 +138,7 @@ namespace Animation
 		void StartTransition(std::unique_ptr<Generator> a_dest, float a_transitionTime);
 		void AdvanceTransitionTime(float a_deltaTime);
 		void UpdateTransition(const ozz::span<ozz::math::SoaTransform>& a_output, const ozz::span<ozz::math::SoaTransform>& a_generatedPose);
+		void UpdatePreGenJobs(float a_deltaTime);
 		void UpdatePostGenJobs(float a_deltaTime, const std::span<ozz::math::SoaTransform>& a_output);
 		void PushAnimationOutput(float a_deltaTime, const std::span<ozz::math::SoaTransform>& a_output);
 		void PushRootOutput(bool a_visible);

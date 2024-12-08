@@ -6,6 +6,11 @@
 #include "SyncInstance.h"
 #include "IAnimEventHandler.h"
 
+namespace Physics
+{
+	class ModelSpaceSystem;
+}
+
 namespace Animation
 {
 	class IBasicAnimation;
@@ -28,6 +33,7 @@ namespace Animation
 			ozz::math::Float4x4* rootTransform;
 			PoseCache::Handle* restPose;
 			const OzzSkeleton* skeleton;
+			Physics::ModelSpaceSystem* physSystem;
 		};
 
 		bool looped = false;
@@ -46,6 +52,7 @@ namespace Animation
 		virtual void Synchronize(Generator* a_other, float a_correctionDelta);
 		virtual GenType GetType();
 		virtual bool RequiresRestPose();
+		virtual bool RequiresPhysicsSystem();
 		virtual size_t GetSizeBytes();
 
 		virtual ~Generator() = default;
@@ -69,6 +76,7 @@ namespace Animation
 		virtual void Synchronize(Generator* a_other, float a_correctionDelta) override;
 		virtual GenType GetType() override;
 		virtual bool RequiresRestPose() override;
+		virtual bool RequiresPhysicsSystem() override;
 		virtual size_t GetSizeBytes() override;
 
 		virtual ~ProceduralGenerator() = default;

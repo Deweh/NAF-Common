@@ -16,6 +16,7 @@ namespace Animation
 	void Generator::Synchronize(Generator* a_other, float a_correctionDelta) {}
 	GenType Generator::GetType() { return GenType::kBase; }
 	bool Generator::RequiresRestPose() { return false; }
+	bool Generator::RequiresPhysicsSystem() { return false; }
 	size_t Generator::GetSizeBytes() { return sizeof(Generator); }
 
 	LinearClipGenerator::LinearClipGenerator(const std::shared_ptr<IBasicAnimation>& a_anim)
@@ -190,10 +191,9 @@ namespace Animation
 	void ProceduralGenerator::SetContext(const ContextData& a_context)
 	{
 		pGraphInstance.restPose = a_context.restPose;
-		pGraphInstance.prevRootTransform = a_context.prevRootTransform;
-		pGraphInstance.rootTransform = a_context.rootTransform;
 		pGraphInstance.skeleton = a_context.skeleton->data.get();
 		pGraphInstance.modelSpaceCache = a_context.modelSpaceCache;
+		pGraphInstance.physSystem = a_context.physSystem;
 	}
 
 	void ProceduralGenerator::AdvanceTime(float deltaTime)
@@ -223,6 +223,11 @@ namespace Animation
 	bool ProceduralGenerator::RequiresRestPose()
 	{
 		return pGraph->needsRestPose;
+	}
+
+	bool ProceduralGenerator::RequiresPhysicsSystem()
+	{
+		return pGraph->needsPhysSystem;
 	}
 
 	size_t ProceduralGenerator::GetSizeBytes()

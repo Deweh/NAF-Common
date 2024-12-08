@@ -2,13 +2,20 @@
 #include "Animation/PoseCache.h"
 #include "Animation/Ozz.h"
 #include "Util/General.h"
+#include "Physics/Constraint.h"
+
+namespace Physics
+{
+	class ModelSpaceSystem;
+}
 
 namespace Animation::Procedural
 {
+	struct PDataObject;
 	class PNode;
 	class PGraph;
 	struct PVariableInstance;
-	using PEvaluationResult = std::variant<float, PoseCache::Handle, uint64_t, RE::BSFixedString, ozz::math::Float4, bool>;
+	using PEvaluationResult = std::variant<float, PoseCache::Handle, uint64_t, RE::BSFixedString, ozz::math::Float4, bool, PDataObject*>;
 
 	template <typename T>
 	inline constexpr std::size_t PEvaluationType = variant_index<T, PEvaluationResult>::value;
@@ -44,10 +51,9 @@ namespace Animation::Procedural
 		std::vector<SyncData> syncMap;
 
 		PoseCache::Handle* restPose = nullptr;
-		const ozz::math::Float4x4* prevRootTransform = nullptr;
-		const ozz::math::Float4x4* rootTransform = nullptr;
 		const ozz::animation::Skeleton* skeleton = nullptr;
 		std::span<ozz::math::Float4x4> modelSpaceCache;
+		Physics::ModelSpaceSystem* physSystem = nullptr;
 
 		void UpdateModelSpaceCache(const std::span<ozz::math::SoaTransform>& a_localPose,
 			int a_from = ozz::animation::Skeleton::kNoParent,
@@ -101,6 +107,24 @@ namespace Animation::Procedural
 		static std::unique_ptr<PNode> CreateNodeOfType()
 		{
 			return std::make_unique<T>();
+		}
+
+	protected:
+		template <typename T>
+		inline T& GetRequiredInput(size_t a_idx, PEvaluationContext& a_evalContext)
+		{
+			return std::get<T>(a_evalContext.results[inputs[a_idx]]);
+		}
+
+		template <typename T>
+		inline T GetOptionalInput(size_t a_idx, const T& a_default, PEvaluationContext& a_evalContext)
+		{
+			size_t resIdx = inputs[a_idx];
+			if (resIdx == UINT64_MAX) {
+				return a_default;
+			} else {
+				return GetRequiredInput<T>(a_idx, a_evalContext);
+			}
 		}
 	};
 

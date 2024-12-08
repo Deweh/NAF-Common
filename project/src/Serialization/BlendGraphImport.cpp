@@ -3,6 +3,7 @@
 #include "Animation/Procedural/PActorNode.h"
 #include "Animation/Procedural/PFullAnimationNode.h"
 #include "Animation/Procedural/PBasePoseNode.h"
+#include "Animation/Procedural/PSpringBoneNode.h"
 #include "Animation/Ozz.h"
 #include "Settings/Settings.h"
 
@@ -175,6 +176,8 @@ namespace Serialization
 					}
 				} else if (destTypeInfo == &PBasePoseNode::_reg) {
 					result->needsRestPose = true;
+				} else if (destTypeInfo == &PSpringBoneNode::_reg) {
+					result->needsPhysSystem = true;
 				}
 			}
 

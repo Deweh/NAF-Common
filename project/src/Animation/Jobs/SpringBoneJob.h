@@ -8,7 +8,7 @@ namespace Animation
 	{
 		static constexpr size_t START_GUID{ 256 };
 
-		Procedural::SpringPhysicsJob::Context springContext;
+		//Procedural::SpringPhysicsJob::Context springContext;
 		ozz::math::SimdFloat4 prevRootPos;
 		ozz::math::SimdFloat4 gravity;
 		float stiffness;

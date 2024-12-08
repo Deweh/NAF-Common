@@ -5,6 +5,7 @@ namespace Animation
 {
 	bool SpringBoneJob::Run(const Context& a_context)
 	{
+		/*
 		springContext.deltaTime = a_context.deltaTime;
 		Procedural::SpringPhysicsJob springJob;
 		springJob.stiffness = stiffness;
@@ -24,6 +25,7 @@ namespace Animation
 			return true;
 
 		Util::Ozz::ApplySoATransformTranslation(boneIdx, output, std::span(a_context.localTransforms, a_context.localCount));
+		*/
 		return true;
 	}
 

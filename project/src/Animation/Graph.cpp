@@ -113,7 +113,8 @@ namespace Animation
 					.prevRootTransform = reinterpret_cast<ozz::math::Float4x4*>(&loadedData->rootNode->previousWorld),
 					.rootTransform = reinterpret_cast<ozz::math::Float4x4*>(&loadedData->rootNode->world),
 					.restPose = &loadedData->restPose,
-					.skeleton = skeleton.get()
+					.skeleton = skeleton.get(),
+					.physSystem = loadedData->physSystem.get()
 				});
 			}
 
@@ -176,6 +177,7 @@ namespace Animation
 		if (!generator) {
 			if (a_visible && flags.any(FLAGS::kHasPostGenJob)) {
 				requiresBaseTransforms = true;
+				UpdatePreGenJobs(a_deltaTime);
 				UpdateRestPose();
 				PushAnimationOutput(a_deltaTime, loadedData->restPose.get());
 			}
@@ -208,6 +210,7 @@ namespace Animation
 			if (requiresBaseTransforms.load()) {
 				UpdateRestPose();
 			}
+			UpdatePreGenJobs(a_deltaTime);
 			auto generatedPose = generator->Generate(loadedData->poseCache, this);
 
 			if (flags.any(FLAGS::kTransitioning)) {
@@ -710,6 +713,16 @@ namespace Animation
 		blendJob.Run();
 	}
 
+	void Graph::UpdatePreGenJobs(float a_deltaTime)
+	{
+		Physics::ModelSpaceSystem* physSystem = loadedData->physSystem.get();
+		if (!physSystem)
+			return;
+
+		NiSkeletonRootNode* rootNode = loadedData->rootNode;
+		physSystem->Update(a_deltaTime, *reinterpret_cast<ozz::math::Float4x4*>(&rootNode->world), *reinterpret_cast<ozz::math::Float4x4*>(&rootNode->previousWorld));
+	}
+
 	void Graph::UpdatePostGenJobs(float a_deltaTime, const std::span<ozz::math::SoaTransform>& a_output)
 	{
 		if (postGenJobs.empty())
@@ -831,12 +844,22 @@ namespace Animation
 		flags.set(FLAGS::kTransitioning);
 		if (a_dest != nullptr) {
 			generator = std::move(a_dest);
+
+			if (generator->RequiresPhysicsSystem()) {
+				if (!loadedData->physSystem) {
+					loadedData->physSystem = std::make_unique<Physics::ModelSpaceSystem>();
+				}
+			} else {
+				loadedData->physSystem.reset();
+			}
+
 			generator->SetContext({
 				.modelSpaceCache = loadedData->lastOutput,
 				.prevRootTransform = reinterpret_cast<ozz::math::Float4x4*>(&loadedData->rootNode->previousWorld),
 				.rootTransform = reinterpret_cast<ozz::math::Float4x4*>(&loadedData->rootNode->world),
 				.restPose = &loadedData->restPose,
-				.skeleton = skeleton.get()
+				.skeleton = skeleton.get(),
+				.physSystem = loadedData->physSystem.get()
 			});
 
 			if (generator->HasFaceAnimation()) {
