@@ -60,7 +60,6 @@ namespace Animation::Procedural
 		void ProcessPhysicsStep(const SubStepConstants& a_constants);
 		void ProcessLinearStep(const SubStepConstants& a_constants);
 		void ProcessAngularStep(const SubStepConstants& a_constants);
-		ozz::math::SimdQuaternion CalculateDeltaRotation() const;
 	};
 
 	class PSpringBoneNode : public PNodeT<PSpringBoneNode>

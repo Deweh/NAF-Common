@@ -74,16 +74,17 @@ namespace Animation::Procedural
 		}
 
 		if (rotationOutput) {
+			SimdQuaternion prevRot = context->rotation.previous;
 			if (GetX(Dot4(context->rotation.previous.xyzw, context->rotation.current.xyzw)) < 0.00001f) {
-				context->rotation.current = -context->rotation.current;
+				prevRot = -prevRot;
 			}
 			Quaternion q0, q1;
-			StorePtrU(context->rotation.previous.xyzw, &q0.x);
+			StorePtrU(prevRot.xyzw, &q0.x);
 			StorePtrU(context->rotation.current.xyzw, &q1.x);
-			const Quaternion interpRotation = SLerp(q0, q1, ratio);
+			const Quaternion interpRotation = NLerp(q0, q1, ratio);
 			const SimdQuaternion localRot = Util::Ozz::ToNormalizedQuaternion(parentInverseMS) *
 			                                SimdQuaternion{ .xyzw = simd_float4::LoadPtrU(&interpRotation.x) };
-			*rotationOutput = Normalize(localRot);
+			*rotationOutput = localRot;
 		}
 		
 		return true;
@@ -110,7 +111,7 @@ namespace Animation::Procedural
 		a_constantsOut.force = gravityForce + inertiaForce;
 		a_constantsOut.restPositionMS = boneTransform->cols[3];
 		a_constantsOut.restRotationMS = Util::Ozz::ToNormalizedQuaternion(*boneTransform);
-		a_constantsOut.dampingCoeff = simd_float4::Load1((2.0f * std::sqrt(stiffness * mass)) * std::clamp(damping, 0.005f, 1.0f));
+		a_constantsOut.dampingCoeff = simd_float4::Load1((2.0f * std::sqrt(stiffness * mass)) * damping);
 		a_constantsOut.massInverse = 1.0f / mass;
 	}
 
@@ -166,28 +167,19 @@ namespace Animation::Procedural
 		const SimdFloat4 dispAngle = Swizzle<3, 3, 3, 3>(displacement);
 		const SimdFloat4 springTorque = dispAxis * dispAngle * simd_float4::Load1(stiffness);
 		const SimdFloat4 dampingTorque = -context->rotation.velocity * a_constants.dampingCoeff;
-		const SimdFloat4 externalTorque = Cross3(a_constants.force, TransformPoint(*parentTransform, upAxis));
+		const SimdFloat4 externalTorque = Cross3(a_constants.force, TransformPoint(*boneTransform, upAxis));
 		const SimdFloat4 totalTorque = springTorque + dampingTorque + SetW(externalTorque, simd_float4::zero());
 		const SimdFloat4 acceleration = (totalTorque / simd_float4::Load1(momentOfInteria));
 
 		// Quaternion integration.
 		const SimdFloat4 dtSimd = simd_float4::Load1(deltaTime);
-		context->rotation.velocity = context->rotation.velocity + (acceleration * dtSimd);
-		context->rotation.current = Normalize(currentRot * CalculateDeltaRotation());
-		context->rotation.previous = currentRot;
-	}
-
-	ozz::math::SimdQuaternion SpringPhysicsJob::CalculateDeltaRotation() const
-	{
-		using namespace ozz::math;
-		constexpr float deltaTime = FIXED_TIMESTEP;
-
-		SimdFloat4 halfAngle = context->rotation.velocity * simd_float4::Load1(deltaTime * 0.5f);
-		float length = GetX(Length3(halfAngle));
-		if (length > 0.0f) {
-			halfAngle = halfAngle * simd_float4::Load1(std::sin(length) / length);
+		const SimdFloat4 newVel = context->rotation.velocity + (acceleration * dtSimd);
+		context->rotation.velocity = newVel;
+		const SimdFloat4 deltaAngle = Swizzle<0, 0, 0, 0>(Length3(newVel)) * dtSimd;
+		if (AreAllTrue1(CmpGt(deltaAngle, simd_float4::zero()))) {
+			context->rotation.current = currentRot * SimdQuaternion::FromAxisAngle(Normalize3(newVel), deltaAngle);
 		}
-		return SimdQuaternion{ .xyzw = SetW(halfAngle, simd_float4::Load1(std::cos(length))) };
+		context->rotation.previous = currentRot;
 	}
 
 	void PSpringBoneNode::AdvanceTime(PNodeInstanceData* a_instanceData, float a_deltaTime)
@@ -203,13 +195,13 @@ namespace Animation::Procedural
 	PEvaluationResult PSpringBoneNode::Evaluate(PNodeInstanceData* a_instanceData, PoseCache& a_poseCache, PEvaluationContext& a_evalContext)
 	{
 		auto inst = static_cast<InstanceData*>(a_instanceData);
-		constexpr float valMin = 0.00001f;
+		constexpr float valMin = 0.05f;
 
 		// Get node input data.
 		PoseCache::Handle& input = std::get<PoseCache::Handle>(a_evalContext.results[inputs[0]]);
-		const float stiffness = std::max(valMin, std::get<float>(a_evalContext.results[inputs[1]]));
-		const float damping = std::max(valMin, std::get<float>(a_evalContext.results[inputs[2]]));
-		const float mass = std::max(valMin, std::get<float>(a_evalContext.results[inputs[3]]));
+		const float stiffness = std::clamp(std::get<float>(a_evalContext.results[inputs[1]]), 1.0f, 10000.0f);
+		const float damping = std::clamp(std::get<float>(a_evalContext.results[inputs[2]]), 0.001f, 1.0f);
+		const float mass = std::clamp(std::get<float>(a_evalContext.results[inputs[3]]), 0.1f, 2000.0f);
 		const ozz::math::Float4& gravity = std::get<ozz::math::Float4>(a_evalContext.results[inputs[4]]);
 
 		// Acquire a pose handle for this node's output and copy the input pose to the output pose - we only need to make 1 correction to the pose.
