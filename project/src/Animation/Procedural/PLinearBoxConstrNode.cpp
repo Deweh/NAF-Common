@@ -19,11 +19,11 @@ namespace Animation::Procedural
 		auto inst = static_cast<InstanceData*>(a_instanceData);
 		const Float4 min = GetRequiredInput<ozz::math::Float4>(0, a_evalContext);
 		const Float4 max = GetRequiredInput<ozz::math::Float4>(1, a_evalContext);
-		const float soft = GetRequiredInput<float>(2, a_evalContext);
+		const float bounce = GetRequiredInput<float>(2, a_evalContext);
 
 		inst->min = simd_float4::Load3PtrU(&min.x);
 		inst->max = simd_float4::Load3PtrU(&max.x);
-		inst->softness = soft;
+		inst->bounce = bounce;
 		return static_cast<PDataObject*>(inst);
 	}
 }

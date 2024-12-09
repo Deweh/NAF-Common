@@ -2,7 +2,7 @@
 
 namespace Animation::Procedural
 {
-	Physics::SpringProperties* PSpringPropsNode::InstanceData::IsSpringProperties()
+	Physics::SpringWithBodyProperties* PSpringPropsNode::InstanceData::IsSpringProperties()
 	{
 		return this;
 	}
@@ -17,8 +17,9 @@ namespace Animation::Procedural
 	PEvaluationResult PSpringPropsNode::Evaluate(PNodeInstanceData* a_instanceData, PoseCache& a_poseCache, PEvaluationContext& a_evalContext)
 	{
 		auto inst = static_cast<InstanceData*>(a_instanceData);
-		inst->stiffness = std::clamp(GetRequiredInput<float>(0, a_evalContext), 1.0f, 10000.0f);
-		inst->damping = std::clamp(GetRequiredInput<float>(1, a_evalContext), 0.001f, 1.0f);
+		inst->spring.stiffness = std::clamp(GetRequiredInput<float>(0, a_evalContext), 1.0f, 10000.0f);
+		const float dampingRatio = std::clamp(GetRequiredInput<float>(1, a_evalContext), 0.001f, 1.0f);
+		inst->spring.damping = (2.0f * std::sqrt(inst->spring.stiffness * inst->mass)) * dampingRatio;
 		inst->mass = std::clamp(GetRequiredInput<float>(2, a_evalContext), 0.1f, 2000.0f);
 
 		const ozz::math::Float4 gravity = GetOptionalInput<ozz::math::Float4>(3, ozz::math::Float4::zero(), a_evalContext);

@@ -12,7 +12,7 @@ namespace Animation::Procedural
 		return nullptr;
 	}
 
-	Physics::SpringProperties* PDataObject::IsSpringProperties()
+	Physics::SpringWithBodyProperties* PDataObject::IsSpringProperties()
 	{
 		return nullptr;
 	}

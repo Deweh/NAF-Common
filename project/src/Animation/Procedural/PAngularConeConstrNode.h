@@ -21,9 +21,8 @@ namespace Animation::Procedural
 		inline static Registration _reg{
 			"angle_cone_constr",
 			{ 
-				{ "axis", PEvaluationType<ozz::math::Float4> },
 				{ "halfAngle", PEvaluationType<float> },
-				{ "soft", PEvaluationType<float> } },
+				{ "bounce", PEvaluationType<float> } },
 			{
 			},
 			PEvaluationType<PDataObject*>,

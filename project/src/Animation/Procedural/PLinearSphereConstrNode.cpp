@@ -16,7 +16,7 @@ namespace Animation::Procedural
 	{
 		auto inst = static_cast<InstanceData*>(a_instanceData);
 		inst->radius = GetRequiredInput<float>(0, a_evalContext);
-		inst->softness = GetRequiredInput<float>(1, a_evalContext);
+		inst->bounce = GetRequiredInput<float>(1, a_evalContext);
 		return static_cast<PDataObject*>(inst);
 	}
 }

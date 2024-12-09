@@ -10,9 +10,9 @@ namespace Animation::Procedural
 		struct InstanceData :
 			public PNodeInstanceDataT<InstanceData>,
 			public PDataObject,
-			public Physics::SpringProperties
+			public Physics::SpringWithBodyProperties
 		{
-			virtual Physics::SpringProperties* IsSpringProperties() override;
+			virtual Physics::SpringWithBodyProperties* IsSpringProperties() override;
 		};
 
 		ozz::math::Float3 upAxis;

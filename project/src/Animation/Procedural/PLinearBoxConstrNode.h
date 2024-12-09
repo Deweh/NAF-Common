@@ -23,7 +23,7 @@ namespace Animation::Procedural
 			{
 				{ "min", PEvaluationType<ozz::math::Float4> },
 				{ "max", PEvaluationType<ozz::math::Float4> },
-				{ "soft", PEvaluationType<float> } },
+				{ "bounce", PEvaluationType<float> } },
 			{
 			},
 			PEvaluationType<PDataObject*>,

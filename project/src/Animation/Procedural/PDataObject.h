@@ -9,6 +9,6 @@ namespace Animation::Procedural
 		virtual ~PDataObject() = default;
 		virtual Physics::LinearConstraint* IsLinearConstraint();
 		virtual Physics::AngularConstraint* IsAngularConstraint();
-		virtual Physics::SpringProperties* IsSpringProperties();
+		virtual Physics::SpringWithBodyProperties* IsSpringProperties();
 	};
 }

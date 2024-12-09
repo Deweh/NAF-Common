@@ -1,5 +1,7 @@
 #pragma once
 #include "Constraint.h"
+#include "DynamicProperty.h"
+#include "Spring.h"
 
 namespace Physics
 {
@@ -11,23 +13,6 @@ namespace Physics
 		ozz::math::SimdQuaternion rotation;
 	};
 
-	template <typename T>
-	struct DynamicProperty
-	{
-		T current;
-		T previous;
-		ozz::math::SimdFloat4 velocity;
-	};
-
-	struct SpringProperties
-	{
-		float stiffness;
-		float damping;
-		float mass;
-		ozz::math::SimdFloat4 gravity;
-		ozz::math::SimdFloat4 upAxis;
-	};
-
 	class Body
 	{
 	public:
@@ -36,23 +21,22 @@ namespace Physics
 			ModelSpaceSystem* system = nullptr;
 			LinearConstraint* linearConstraint = nullptr;
 			AngularConstraint* angularConstraint = nullptr;
-			SpringProperties* linearSpring = nullptr;
-			SpringProperties* angularSpring = nullptr;
+			SpringWithBodyProperties* linearProps = nullptr;
+			SpringWithBodyProperties* angularProps = nullptr;
 			ozz::math::Float4x4 animatedTransform;
 			ozz::math::Float4x4 parentTransform;
 		};
 
 		struct SubStepConstants
 		{
-			struct SpringConstants
+			struct PropertyConstants
 			{
 				ozz::math::SimdFloat4 force;
-				ozz::math::SimdFloat4 dampingCoeff;
 				float massInverse;
 			};
 			
-			SpringConstants linearSpring;
-			SpringConstants angularSpring;
+			PropertyConstants linear;
+			PropertyConstants angular;
 			ozz::math::SimdFloat4 restPositionMS;
 			ozz::math::SimdQuaternion restRotationMS;
 			ozz::math::SimdQuaternion parentInverseRotMS;
@@ -65,12 +49,12 @@ namespace Physics
 		Transform Update(const UpdateContext& a_context);
 
 	protected:
-		void CalculateSpringConstants(const UpdateContext& a_context, SpringProperties& a_props, SubStepConstants::SpringConstants& a_constantsOut);
+		void CalculatePropertyConstants(const UpdateContext& a_context, SpringWithBodyProperties& a_props, SubStepConstants::PropertyConstants& a_constantsOut);
 		void BeginStepUpdate(const UpdateContext& a_context, SubStepConstants& a_constants);
 		void ProcessPhysicsStep(const UpdateContext& a_context, const SubStepConstants& a_constants);
 
-		void ProcessLinearSpringStep(const UpdateContext& a_context, const SubStepConstants& a_constants);
-		void ProcessAngularSpringStep(const UpdateContext& a_context, const SubStepConstants& a_constants);
+		void ProcessLinearStep(const UpdateContext& a_context, const SubStepConstants& a_constants);
+		void ProcessAngularStep(const UpdateContext& a_context, const SubStepConstants& a_constants);
 
 		Transform CalculateInterpolatedTransform(const UpdateContext& a_context, const SubStepConstants& a_constants) const;
 	};

@@ -1,11 +1,20 @@
 #pragma once
+#include "DynamicProperty.h"
+#include "Spring.h"
 
 namespace Physics
 {
 	template <typename T>
 	struct Constraint
 	{
-		virtual T Apply(const T& a_current) = 0;
+		struct Data
+		{
+			DynamicProperty<T>* property;
+			T constrainedTo;
+			float massInverse;
+		};
+
+		virtual void Apply(const Data& a_data) = 0;
 	};
 
 	using AngularConstraint = Constraint<ozz::math::SimdQuaternion>;
@@ -15,25 +24,26 @@ namespace Physics
 	{
 		ozz::math::SimdFloat4 min;
 		ozz::math::SimdFloat4 max;
-		float softness;
+		Spring* collisionSpring;
+		float bounce;
 
-		virtual ozz::math::SimdFloat4 Apply(const ozz::math::SimdFloat4& a_position) override;
+		virtual void Apply(const Data& a_data) override;
 	};
 
 	struct LinearSphereConstraint : public LinearConstraint
 	{
+		Spring* collisionSpring;
 		float radius;
-		float softness;
+		float bounce;
 
-		virtual ozz::math::SimdFloat4 Apply(const ozz::math::SimdFloat4& a_position) override;
+		virtual void Apply(const Data& a_data) override;
 	};
 
 	struct AngularConeConstraint : public AngularConstraint
 	{
-		ozz::math::SimdFloat4 axis;
 		float halfAngle;
-		float softness;
+		float bounce;
 
-		virtual ozz::math::SimdQuaternion Apply(const ozz::math::SimdQuaternion& a_rotation) override;
+		virtual void Apply(const Data& a_data) override;
 	};
 }

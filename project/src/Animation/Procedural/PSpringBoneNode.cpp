@@ -7,11 +7,6 @@
 
 namespace Animation::Procedural
 {
-	void PSpringBoneNode::AdvanceTime(PNodeInstanceData* a_instanceData, float a_deltaTime)
-	{
-		//static_cast<InstanceData*>(a_instanceData)->context.deltaTime = a_deltaTime;
-	}
-
 	std::unique_ptr<PNodeInstanceData> PSpringBoneNode::CreateInstanceData()
 	{
 		return std::make_unique<InstanceData>();
@@ -25,12 +20,12 @@ namespace Animation::Procedural
 		// Get node input data.
 		PoseCache::Handle& input = GetRequiredInput<PoseCache::Handle>(0, a_evalContext);
 
-		Physics::SpringProperties* linearProps = nullptr;
+		Physics::SpringWithBodyProperties* linearProps = nullptr;
 		if (auto data = GetOptionalInput<PDataObject*>(1, nullptr, a_evalContext); data) {
 			linearProps = data->IsSpringProperties();
 		}
 
-		Physics::SpringProperties* angularProps = nullptr;
+		Physics::SpringWithBodyProperties* angularProps = nullptr;
 		if (auto data = GetOptionalInput<PDataObject*>(2, nullptr, a_evalContext); data) {
 			angularProps = data->IsSpringProperties();
 		}
@@ -59,8 +54,8 @@ namespace Animation::Procedural
 			.system = a_evalContext.physSystem,
 			.linearConstraint = linearConstraint,
 			.angularConstraint = angularConstraint,
-			.linearSpring = linearProps,
-			.angularSpring = angularProps,
+			.linearProps = linearProps,
+			.angularProps = angularProps,
 			.animatedTransform = a_evalContext.modelSpaceCache[boneIdx],
 			.parentTransform = a_evalContext.modelSpaceCache[parentIdx]
 		};

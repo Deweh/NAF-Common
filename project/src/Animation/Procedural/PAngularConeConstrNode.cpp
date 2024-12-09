@@ -1,4 +1,5 @@
 #include "PAngularConeConstrNode.h"
+#include "Util/Math.h"
 
 namespace Animation::Procedural
 {
@@ -17,13 +18,11 @@ namespace Animation::Procedural
 	PEvaluationResult PAngularConeConstrNode::Evaluate(PNodeInstanceData* a_instanceData, PoseCache& a_poseCache, PEvaluationContext& a_evalContext)
 	{
 		auto inst = static_cast<InstanceData*>(a_instanceData);
-		const Float4 axis = GetRequiredInput<ozz::math::Float4>(0, a_evalContext);
-		const float halfAngle = GetRequiredInput<float>(1, a_evalContext);
-		const float soft = GetRequiredInput<float>(2, a_evalContext);
+		const float halfAngle = GetRequiredInput<float>(0, a_evalContext) * Util::DEGREE_TO_RADIAN;
+		const float bounce = GetRequiredInput<float>(1, a_evalContext);
 
-		inst->axis = simd_float4::Load3PtrU(&axis.x);
 		inst->halfAngle = halfAngle;
-		inst->softness = soft;
+		inst->bounce = bounce;
 		return static_cast<PDataObject*>(inst);
 	}
 }
