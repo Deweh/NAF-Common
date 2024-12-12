@@ -22,7 +22,8 @@ namespace Animation::Procedural
 			"linear_sphere_constr",
 			{
 				{ "radius", PEvaluationType<float> },
-				{ "bounce", PEvaluationType<float> }
+				{ "bounce", PEvaluationType<float>, true },
+				{ "spring", PEvaluationType<PDataObject*>, true }
 			},
 			{
 			},

@@ -17,12 +17,17 @@ namespace Physics
 		movementTime += a_deltaTime;
 		accumulatedTime += a_deltaTime;
 
-		uint8_t stepsToPerform = accumulatedTime > 0.0f ? static_cast<uint8_t>(accumulatedTime / FIXED_TIMESTEP) : 0;
-		stepsToPerform = std::min(stepsToPerform, MAX_STEPS_PER_RUN);
-		accumulatedTime = std::fmodf(accumulatedTime, FIXED_TIMESTEP);
+		// Calculate required physics steps & interpolation ratio.
+		uint8_t stepsToPerform = 0;
+		while (accumulatedTime >= FIXED_TIMESTEP) {
+			++stepsToPerform;
+			accumulatedTime -= FIXED_TIMESTEP;
+		}
+		simData.requiredSteps = std::min(stepsToPerform, MAX_STEPS_PER_RUN);
+		simData.interpolationRatio = accumulatedTime > 0.0f ? (accumulatedTime / FIXED_TIMESTEP) : 0.0f;
 
+		// If any physics steps are being performed this update, calculate root acceleration in model-space based on accumulated movement.
 		if (stepsToPerform > 0) {
-			// Calculate root acceleration in model-space.
 			const SimdFloat4 deltaInvSimd = simd_float4::Load1(1.0f / movementTime);
 			const SimdFloat4 worldVelocity = accumulatedMovement * deltaInvSimd;
 			const SimdFloat4 worldAcceleration = (worldVelocity - prevRootVelocity) * deltaInvSimd;
@@ -32,7 +37,5 @@ namespace Physics
 			simData.rootAcceleration = worldAcceleration;
 			simData.interpolationRatio = accumulatedTime > 0.0f ? (accumulatedTime / FIXED_TIMESTEP) : 0.0f;
 		}
-
-		simData.requiredSteps = stepsToPerform;
 	}
 }

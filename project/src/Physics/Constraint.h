@@ -24,17 +24,17 @@ namespace Physics
 	{
 		ozz::math::SimdFloat4 min;
 		ozz::math::SimdFloat4 max;
-		Spring* collisionSpring;
 		float bounce;
+		Spring* softSpring;
 
 		virtual void Apply(const Data& a_data) override;
 	};
 
 	struct LinearSphereConstraint : public LinearConstraint
 	{
-		Spring* collisionSpring;
 		float radius;
 		float bounce;
+		Spring* softSpring;
 
 		virtual void Apply(const Data& a_data) override;
 	};
@@ -43,6 +43,7 @@ namespace Physics
 	{
 		float halfAngle;
 		float bounce;
+		Spring* softSpring;
 
 		virtual void Apply(const Data& a_data) override;
 	};

@@ -19,10 +19,18 @@ namespace Animation::Procedural
 	{
 		auto inst = static_cast<InstanceData*>(a_instanceData);
 		const float halfAngle = GetRequiredInput<float>(0, a_evalContext) * Util::DEGREE_TO_RADIAN;
-		const float bounce = GetRequiredInput<float>(1, a_evalContext);
+		const float bounce = GetOptionalInput<float>(1, 0.0f, a_evalContext);
+
+		Physics::Spring* softSpring = nullptr;
+		if (auto data = GetOptionalInput<PDataObject*>(2, nullptr, a_evalContext); data) {
+			if (auto props = data->IsSpringProperties(); props) {
+				softSpring = &props->spring;
+			}
+		}
 
 		inst->halfAngle = halfAngle;
 		inst->bounce = bounce;
+		inst->softSpring = softSpring;
 		return static_cast<PDataObject*>(inst);
 	}
 }

@@ -22,7 +22,9 @@ namespace Animation::Procedural
 			"angle_cone_constr",
 			{ 
 				{ "halfAngle", PEvaluationType<float> },
-				{ "bounce", PEvaluationType<float> } },
+				{ "bounce", PEvaluationType<float>, true },
+				{ "spring", PEvaluationType<PDataObject*>, true }
+			},
 			{
 			},
 			PEvaluationType<PDataObject*>,

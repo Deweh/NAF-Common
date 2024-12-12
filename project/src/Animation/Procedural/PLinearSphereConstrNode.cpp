@@ -16,7 +16,16 @@ namespace Animation::Procedural
 	{
 		auto inst = static_cast<InstanceData*>(a_instanceData);
 		inst->radius = GetRequiredInput<float>(0, a_evalContext);
-		inst->bounce = GetRequiredInput<float>(1, a_evalContext);
+		inst->bounce = GetOptionalInput<float>(1, 0.0f, a_evalContext);
+
+		Physics::Spring* softSpring = nullptr;
+		if (auto data = GetOptionalInput<PDataObject*>(2, nullptr, a_evalContext); data) {
+			if (auto props = data->IsSpringProperties(); props) {
+				softSpring = &props->spring;
+			}
+		}
+
+		inst->softSpring = softSpring;
 		return static_cast<PDataObject*>(inst);
 	}
 }
