@@ -10,6 +10,73 @@
 
 namespace Animation
 {
+	void GraphManager::CreateSaveData(SaveData& a_data)
+	{
+		const auto SerializeGraph = [&](Graph* g) -> SaveData::RefData {
+			SaveData::RefData refData;
+			refData.formId = g->GetTargetFormID();
+			refData.syncOwner = g->GetSyncOwnerFormID();
+			refData.animFile = g->GetCurrentAnimationFile();
+
+			if (auto gen = g->generator.get(); gen) {
+				refData.localTime = gen->localTime;
+				refData.speedMult = gen->speed;
+				if (ProceduralGenerator* pGen = dynamic_cast<ProceduralGenerator*>(gen); pGen) {
+					pGen->ForEachVariable([&](std::string_view name, float& value) {
+						refData.blendVars.emplace_back(SaveData::BlendGraphVariable{ .name = std::string(name), .value = value });
+					});
+				}
+			} else {
+				refData.localTime = 0.0f;
+				refData.speedMult = 0.0f;
+			}
+			return refData;
+		};
+
+		std::unique_lock l{ stateLock };
+		for (auto& g : state->loadedGraphs) {
+			a_data.refs.push_back(std::move(SerializeGraph(g.second.get())));
+		}
+		for (auto& g : state->unloadedGraphs) {
+			a_data.refs.push_back(std::move(SerializeGraph(g.second.get())));
+		}
+	}
+
+	void GraphManager::LoadSaveData(const SaveData& a_data)
+	{
+		std::unique_lock l{ stateLock };
+		for (const auto& ref : a_data.refs)
+		{
+			RE::Actor* curActor = RE::TESForm::LookupByID<RE::Actor>(ref.formId);
+			if (!curActor)
+				continue;
+
+			std::shared_ptr<Graph> g = GetGraphLockless(curActor, true);
+			g->MountAnimationFile(FileID(ref.animFile, ""), 0.0f, false);
+
+			if (auto gen = g->generator.get(); gen) {
+				gen->localTime = ref.localTime;
+				gen->speed = ref.speedMult;
+
+				if (ProceduralGenerator* pGen = dynamic_cast<ProceduralGenerator*>(gen); pGen) {
+					for (const auto& pVar : ref.blendVars) {
+						pGen->SetVariable(pVar.name, pVar.value);
+					}
+				}
+			}
+
+			if (ref.syncOwner != 0 && ref.syncOwner != ref.formId) {
+				RE::Actor* syncActor = RE::TESForm::LookupByID<RE::Actor>(ref.syncOwner);
+				if (!syncActor)
+					continue;
+
+				std::shared_ptr<Graph> syncGraph = GetGraphLockless(syncActor, true);
+				syncGraph->MakeSyncOwner();
+				g->SyncToGraph(syncGraph.get());
+			}
+		}
+	}
+
 	GraphManager* GraphManager::GetSingleton()
 	{
 		static GraphManager* singleton{ new GraphManager() };
@@ -19,14 +86,7 @@ namespace Animation
 	bool GraphManager::LoadAndStartAnimation(RE::Actor* a_actor, const std::string_view a_filePath, const std::string_view a_animId, float a_transitionTime)
 	{
 		return VisitGraph(a_actor, [&](Graph* g) {
-			g->DetachSequencer(false);
-			if (g->flags.none(Graph::FLAGS::kUnloaded3D)) {
-				g->loadedData->transition.queuedDuration = a_transitionTime;
-				FileManager::GetSingleton()->RequestAnimation(FileID(a_filePath, a_animId), g->skeleton->name, g->weak_from_this());
-			} else {
-				g->unloadedData->restoreFile = FileID(a_filePath, a_animId);
-			}
-			
+			g->MountAnimationFile(FileID(a_filePath, a_animId), a_transitionTime);
 			return true;
 		}, true);
 	}
@@ -244,9 +304,9 @@ namespace Animation
 		if (auto g = GetGraph(a_actor, false); g) {
 			std::unique_lock l{ g->lock };
 #if defined TARGET_GAME_F4
-			g->GetSkeletonNodes(static_cast<RE::NiNode*>(a_3d));
+			g->On3DChange(static_cast<RE::NiNode*>(a_3d));
 #elif defined TARGET_GAME_SF
-			g->GetSkeletonNodes(static_cast<RE::BGSFadeNode*>(a_3d));
+			g->On3DChange(static_cast<RE::BGSFadeNode*>(a_3d));
 #endif
 			bool isLoaded = g->flags.none(Graph::FLAGS::kUnloaded3D);
 			l.unlock();
@@ -265,11 +325,11 @@ namespace Animation
 		g->ResetRootTransform();
 		RE::NiAVObject* actor3d = nullptr;
 #if defined TARGET_GAME_F4
-		g->GetSkeletonNodes(static_cast<RE::NiNode*>(a_actor->Get3D()));
+		g->On3DChange(static_cast<RE::NiNode*>(a_actor->Get3D()));
 #elif defined TARGET_GAME_SF
 		auto loadedData = a_actor->loadedData.lock_read();
 		if (*loadedData != nullptr) {
-			g->GetSkeletonNodes(static_cast<RE::BGSFadeNode*>(loadedData->data3D.get()));
+			g->On3DChange(static_cast<RE::BGSFadeNode*>(loadedData->data3D.get()));
 		}
 #endif
 		return g;

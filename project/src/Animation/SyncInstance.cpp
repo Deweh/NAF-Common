@@ -77,4 +77,17 @@ namespace Animation
 			d->owner.reset();
 		}
 	}
+
+	uint32_t SyncInstance::GetOwnerFormID()
+	{
+		std::shared_ptr<Graph> owner;
+		owner = data.lock()->owner.lock();
+		if (owner) {
+			std::unique_lock l{ owner->lock };
+			uint32_t formId = owner->GetTargetFormID();
+			return formId;
+		} else {
+			return 0;
+		}
+	}
 }

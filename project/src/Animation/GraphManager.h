@@ -19,9 +19,33 @@ namespace Animation
 			std::unordered_set<uint32_t> managedRefs;
 		};
 
+		struct SaveData
+		{
+			struct BlendGraphVariable
+			{
+				std::string name;
+				float value;
+			};
+
+			struct RefData
+			{
+				uint32_t formId;
+				uint32_t syncOwner;
+				std::string animFile;
+				float localTime;
+				float speedMult;
+				std::vector<BlendGraphVariable> blendVars;
+			};
+
+			std::vector<RefData> refs;
+		};
+
 		std::shared_mutex stateLock;
 		std::unique_ptr<PersistentState> state = std::make_unique<PersistentState>();
 		std::atomic<bool> playerIsManaged = false;
+
+		void CreateSaveData(SaveData& a_data);
+		void LoadSaveData(const SaveData& a_data);
 
 		static GraphManager* GetSingleton();
 		bool LoadAndStartAnimation(RE::Actor* a_actor, const std::string_view a_filePath, const std::string_view a_animId = "", float a_transitionTime = 1.0f);

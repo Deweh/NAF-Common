@@ -38,7 +38,7 @@ namespace Animation
 		}
 		EnableEyeTracking();
 		SetLockPosition(false);
-		SendEventExternal("AnimObjUnequip");
+		SendEventInstant("AnimObjUnequip");
 	}
 
 	void Graph::OnAnimationReady(const FileID& a_id, std::shared_ptr<IAnimationFile> a_anim)
@@ -96,7 +96,7 @@ namespace Animation
 		skeleton = a_descriptor;
 	}
 
-	void Graph::GetSkeletonNodes(NiSkeletonRootNode* a_rootNode) {
+	void Graph::On3DChange(NiSkeletonRootNode* a_rootNode) {
 		bool isLoaded = a_rootNode != nullptr;
 
 		transforms.clear();
@@ -526,7 +526,7 @@ namespace Animation
 		loadedData->pendingEvents.clear();
 	}
 
-	void Graph::SendEventExternal(const RE::BSFixedString& a_event, const RE::BSFixedString& a_arg)
+	void Graph::SendEventInstant(const RE::BSFixedString& a_event, const RE::BSFixedString& a_arg)
 	{
 #ifdef TARGET_GAME_F4
 		xSE::GetTaskInterface()->AddTask([hndl = target->GetHandle(), a_event = a_event, a_arg = a_arg]() {
@@ -618,6 +618,37 @@ namespace Animation
 	bool Graph::GetRequiresBaseTransforms() const
 	{
 		return requiresBaseTransforms.load();
+	}
+
+	uint32_t Graph::GetTargetFormID() const
+	{
+		if (target) {
+			return target->formID;
+		} else {
+			return 0;
+		}
+	}
+
+	uint32_t Graph::GetSyncOwnerFormID() const
+	{
+		if (syncInst) {
+			return syncInst->GetOwnerFormID();
+		} else {
+			return 0;
+		}
+	}
+
+	std::string_view Graph::GetCurrentAnimationFile() const
+	{
+		if (flags.any(FLAGS::kUnloaded3D)) {
+			return unloadedData->restoreFile.QPath();
+		}
+		if (flags.any(FLAGS::kLoadingAnimation)) {
+			return loadedData->loadingFile.QPath();
+		}
+		if (generator) {
+			return generator->GetSourceFile();
+		}
 	}
 
 	void Graph::UpdateFaceAnimData()
@@ -758,6 +789,27 @@ namespace Animation
 			} else {
 				++iter;
 			}
+		}
+	}
+
+	void Graph::MountAnimationFile(const FileID& a_id, float a_transitionTime, bool a_request, bool a_detachSequencer)
+	{
+		if (a_detachSequencer) {
+			DetachSequencer(false);
+		}
+		if (loadedData) {
+			FileManager* fm = FileManager::GetSingleton();
+			if (a_request) {
+				loadedData->transition.queuedDuration = a_transitionTime;
+				fm->RequestAnimation(a_id, skeleton->name, weak_from_this());
+			} else {
+				std::shared_ptr<IAnimationFile> file = fm->DemandAnimation(a_id, skeleton->name, false);
+				if (file) {
+					StartTransition(file->CreateGenerator(), a_transitionTime);
+				}
+			}
+		} else {
+			unloadedData->restoreFile = a_id;
 		}
 	}
 

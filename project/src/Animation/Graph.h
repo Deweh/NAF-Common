@@ -128,14 +128,34 @@ namespace Animation
 		virtual void QueueEvent(const RE::BSFixedString& a_event, const RE::BSFixedString& a_arg) override;
 
 		void SetSkeleton(std::shared_ptr<const OzzSkeleton> a_descriptor);
-		void GetSkeletonNodes(NiSkeletonRootNode* a_rootNode);
+		void On3DChange(NiSkeletonRootNode* a_rootNode);
 		ozz::math::Float4x4 GetCurrentTransform(size_t nodeIdx);
 		void Update(float a_deltaTime, bool a_visible, GraphEventProcessor* a_gameGraph);
 		bool AddTwoBoneIKJob(uint8_t a_chainId, const std::span<std::string_view, 3> a_nodeNames, const RE::NiPoint3& a_targetWorld, const RE::NiPoint3& a_poleDirModel = { 0.0f, 1.0f, 0.0f }, float a_transitionTime = 1.0f);
 		bool RemoveTwoBoneIKJob(uint8_t a_chainId, float a_transitionTime = 1.0f);
 		void AddPostGenJob(IPostGenJob* a_job);
 		bool RemovePostGenJob(uint64_t a_guid);
+		void MountAnimationFile(const FileID& a_id, float a_transitionTime = 1.0f, bool a_request = true, bool a_detachSequencer = true);
 		void StartTransition(std::unique_ptr<Generator> a_dest, float a_transitionTime);
+		void ResetRootTransform();
+		void MakeSyncOwner();
+		void SyncToGraph(Graph* a_grph);
+		void StopSyncing();
+		void SyncRootToGraph(Graph* a_grph);
+		void SetNoBlink(bool a_noBlink);
+		void DisableEyeTracking();
+		void EnableEyeTracking();
+		void DetachSequencer(bool a_transitionOut = true);
+		void SendEventInstant(const RE::BSFixedString& a_event, const RE::BSFixedString& a_arg = "");
+		void SetLockPosition(bool a_lock);
+		size_t GetSizeBytes() const;
+		bool GetRequiresDetach() const;
+		bool GetRequiresBaseTransforms() const;
+		uint32_t GetTargetFormID() const;
+		uint32_t GetSyncOwnerFormID() const;
+		std::string_view GetCurrentAnimationFile() const;
+
+	protected:
 		void AdvanceTransitionTime(float a_deltaTime);
 		void UpdateTransition(const ozz::span<ozz::math::SoaTransform>& a_output, const ozz::span<ozz::math::SoaTransform>& a_generatedPose);
 		void UpdatePreGenJobs(float a_deltaTime);
@@ -144,23 +164,9 @@ namespace Animation
 		void PushRootOutput(bool a_visible);
 		void UpdateRestPose();
 		void SnapshotPose();
-		void ResetRootTransform();
-		void MakeSyncOwner();
-		void SyncToGraph(Graph* a_grph);
-		void StopSyncing();
-		void SyncRootToGraph(Graph* a_grph);
 		void UpdateFaceAnimData();
-		void SetNoBlink(bool a_noBlink);
 		void SetFaceMorphsControlled(bool a_controlled, float a_transitionTime);
-		void DisableEyeTracking();
-		void EnableEyeTracking();
-		void DetachSequencer(bool a_transitionOut = true);
 		void SetLoaded(bool a_loaded);
 		void ProcessEvents(GraphEventProcessor* a_gameGraph) const;
-		void SendEventExternal(const RE::BSFixedString& a_event, const RE::BSFixedString& a_arg = "");
-		void SetLockPosition(bool a_lock);
-		size_t GetSizeBytes() const;
-		bool GetRequiresDetach() const;
-		bool GetRequiresBaseTransforms() const;
 	};
 }

@@ -43,5 +43,6 @@ namespace Animation
 		bool Synchronize(Graph* a_grph, const std::function<void(Graph*, bool)>& a_visitFunc);
 		void AddMember(Graph* a_grph, bool a_addAsOwner);
 		void RemoveMember(Graph* a_grph);
+		uint32_t GetOwnerFormID();
 	};
 }
