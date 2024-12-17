@@ -138,6 +138,71 @@ namespace Animation::Procedural
 		};
 	};
 
+	class PSetBoneRotationNode : public PNodeT<PSetBoneRotationNode>
+	{
+	public:
+		bool isModelSpace;
+		uint16_t boneIdx;
+		uint16_t parentIdx;
+
+		virtual PEvaluationResult Evaluate(PNodeInstanceData* a_instanceData, PoseCache& a_poseCache, PEvaluationContext& a_evalContext) override
+		{
+			PoseCache::Handle& input = GetRequiredInput<PoseCache::Handle>(0, a_evalContext);
+			ozz::math::Float4& rot = GetRequiredInput<ozz::math::Float4>(1, a_evalContext);
+			PoseCache::Handle output = a_poseCache.acquire_handle();
+			auto inputSpan = input.get();
+			auto outputSpan = output.get();
+			std::copy(inputSpan.begin(), inputSpan.end(), outputSpan.begin());
+
+			const ozz::math::SimdQuaternion inputQuat{ .xyzw = ozz::math::simd_float4::LoadPtrU(&rot.x) };
+			if (!isModelSpace) {
+				Util::Ozz::ApplySoATransformQuaternion(boneIdx, inputQuat, outputSpan);
+			} else {
+				a_evalContext.UpdateModelSpaceCache(input.get(), ozz::animation::Skeleton::kNoParent, boneIdx);
+				const ozz::math::SimdQuaternion parentQuat = Util::Ozz::ToNormalizedQuaternion(a_evalContext.modelSpaceCache[parentIdx]);
+				Util::Ozz::ApplySoATransformQuaternion(boneIdx, Conjugate(parentQuat) * inputQuat, outputSpan);
+			}
+
+			return output;
+		}
+
+		virtual bool SetCustomValues(const std::span<PEvaluationResult>& a_values, const OzzSkeleton* a_skeleton, const std::filesystem::path& a_localDir) override
+		{
+			const RE::BSFixedString& boneName = std::get<RE::BSFixedString>(a_values[0]);
+			isModelSpace = std::get<bool>(a_values[1]);
+
+			const auto idxs = Util::Ozz::GetJointIndexes(a_skeleton->data.get(), boneName.c_str());
+
+			if (!idxs.has_value()) {
+				return false;
+			}
+
+			boneIdx = idxs->at(0);
+
+			int16_t prnt = a_skeleton->data->joint_parents()[boneIdx];
+			if (prnt == ozz::animation::Skeleton::kNoParent) {
+				return false;
+			}
+
+			parentIdx = prnt;
+			return true;
+		}
+
+		inline static Registration _reg{
+			"set_bone_rot",
+			{
+				{ "pose", PEvaluationType<PoseCache::Handle> },
+				{ "rot", PEvaluationType<ozz::math::Float4> }
+			},
+			{
+				{ "bone", PEvaluationType<RE::BSFixedString> },
+				{ "is_ms", PEvaluationType<bool> }
+			},
+			PEvaluationType<PoseCache::Handle>,
+			CreateNodeOfType<PSetBoneRotationNode>
+		};
+	};
+
 	class PGetBonePositionNode : public PNodeT<PGetBonePositionNode>
 	{
 	public:
@@ -189,6 +254,71 @@ namespace Animation::Procedural
 			},
 			PEvaluationType<ozz::math::Float4>,
 			CreateNodeOfType<PGetBonePositionNode>
+		};
+	};
+
+	class PSetBonePositionNode : public PNodeT<PSetBonePositionNode>
+	{
+	public:
+		bool isModelSpace;
+		uint16_t boneIdx;
+		uint16_t parentIdx;
+
+		virtual PEvaluationResult Evaluate(PNodeInstanceData* a_instanceData, PoseCache& a_poseCache, PEvaluationContext& a_evalContext) override
+		{
+			PoseCache::Handle& input = GetRequiredInput<PoseCache::Handle>(0, a_evalContext);
+			ozz::math::Float4& pos = GetRequiredInput<ozz::math::Float4>(1, a_evalContext);
+			PoseCache::Handle output = a_poseCache.acquire_handle();
+			auto inputSpan = input.get();
+			auto outputSpan = output.get();
+			std::copy(inputSpan.begin(), inputSpan.end(), outputSpan.begin());
+
+			const ozz::math::SimdFloat4 inputPos = ozz::math::simd_float4::Load3PtrU(&pos.x);
+			if (!isModelSpace) {
+				Util::Ozz::ApplySoATransformTranslation(boneIdx, inputPos, outputSpan);
+			} else {
+				a_evalContext.UpdateModelSpaceCache(input.get(), ozz::animation::Skeleton::kNoParent, boneIdx);
+				const ozz::math::Float4x4 parentInv = ozz::math::Invert(a_evalContext.modelSpaceCache[parentIdx]);
+				Util::Ozz::ApplySoATransformTranslation(boneIdx, ozz::math::TransformPoint(parentInv, inputPos), outputSpan);
+			}
+
+			return output;
+		}
+
+		virtual bool SetCustomValues(const std::span<PEvaluationResult>& a_values, const OzzSkeleton* a_skeleton, const std::filesystem::path& a_localDir) override
+		{
+			const RE::BSFixedString& boneName = std::get<RE::BSFixedString>(a_values[0]);
+			isModelSpace = std::get<bool>(a_values[1]);
+
+			const auto idxs = Util::Ozz::GetJointIndexes(a_skeleton->data.get(), boneName.c_str());
+
+			if (!idxs.has_value()) {
+				return false;
+			}
+
+			boneIdx = idxs->at(0);
+
+			int16_t prnt = a_skeleton->data->joint_parents()[boneIdx];
+			if (prnt == ozz::animation::Skeleton::kNoParent) {
+				return false;
+			}
+
+			parentIdx = prnt;
+			return true;
+		}
+
+		inline static Registration _reg{
+			"set_bone_pos",
+			{
+				{ "pose", PEvaluationType<PoseCache::Handle> },
+				{ "position", PEvaluationType<ozz::math::Float4> }
+			},
+			{
+				{ "bone", PEvaluationType<RE::BSFixedString> },
+				{ "is_ms", PEvaluationType<bool> }
+			},
+			PEvaluationType<PoseCache::Handle>,
+			CreateNodeOfType<PSetBonePositionNode>
 		};
 	};
 

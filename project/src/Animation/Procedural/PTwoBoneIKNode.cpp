@@ -21,10 +21,8 @@ namespace Animation::Procedural
 		auto outputSpan = output.get();
 		std::copy(inputSpan.begin(), inputSpan.end(), outputSpan.begin());
 
-		// Calculate model-space matrices from the pose, and extract the model-space position & rotation of the IK end node.
+		// Calculate model-space matrices from the pose.
 		a_evalContext.UpdateModelSpaceCache(outputSpan);
-		const ozz::math::Float4x4& endNodeMS = a_evalContext.modelSpaceCache[endNode];
-		const ozz::math::SimdQuaternion endMSRotation = Util::Ozz::ToNormalizedQuaternion(endNodeMS);
 
 		// Setup IK job params & run.
 		ozz::animation::IKTwoBoneJob ikJob;
@@ -47,12 +45,9 @@ namespace Animation::Procedural
 		if (!ikJob.Run())
 			return output;
 
-		// Apply IK corrections to the pose, then update the chain's model-space matrices
-		// so that the end node's original model-space rotation can be reapplied to the pose.
+		// Apply IK corrections to the pose.
 		Util::Ozz::MultiplySoATransformQuaternion(startNode, corrections[0], outputSpan);
 		Util::Ozz::MultiplySoATransformQuaternion(midNode, corrections[1], outputSpan);
-		a_evalContext.UpdateModelSpaceCache(outputSpan, startNode, endNode);
-		Util::Ozz::ApplyMSRotationToLocal(endMSRotation, endNode, outputSpan, a_evalContext.modelSpaceCache, a_evalContext.skeleton);
 
 		return output;
 	}
