@@ -250,7 +250,11 @@ namespace Serialization
 
 		//Save skeleton bind pose.
 		for (int32_t i = 0; i < numJoints; i++) {
-			bindPose.push_back(ozz::animation::GetJointLocalRestPose(*skeleton->data, i));
+			if constexpr (IsFO4()) {
+				bindPose.push_back(ozz::animation::GetJointLocalRestPose(*skeleton->data, i));
+			} else {
+				bindPose.push_back(ozz::math::Transform::identity());
+			}
 		}
 
 		for (auto nIter = asset->nodes.begin(); nIter != asset->nodes.end(); nIter++) {

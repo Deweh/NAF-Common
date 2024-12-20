@@ -5,6 +5,27 @@ namespace Util
 	class String
 	{
 	public:
+		struct CaseInsensitiveLess
+		{
+			inline bool compare(const std::string_view& a_lhs, const std::string_view& a_rhs) const
+			{
+				return std::lexicographical_compare(a_lhs.begin(), a_lhs.end(), a_rhs.begin(), a_rhs.end(),
+					[](const unsigned char a_lhs, const unsigned char a_rhs) {
+						return std::tolower(a_lhs) < std::tolower(a_rhs);
+					});
+			}
+
+			inline bool operator()(const std::string& a_lhs, const std::string& a_rhs) const
+			{
+				return compare(a_lhs, a_rhs);
+			}
+
+			inline bool operator()(const std::string_view& a_lhs, const std::string_view& a_rhs) const
+			{
+				return compare(a_lhs, a_rhs);
+			}
+		};
+
 		static const std::filesystem::path& GetGamePath();
 		static const std::filesystem::path& GetDataPath();
 		static std::string ToLower(const std::string_view s);

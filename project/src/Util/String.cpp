@@ -4,7 +4,8 @@ namespace Util
 {
 	namespace detail
 	{
-		inline bool CaseInsensitiveCharCompare(char c1, char c2) {
+		inline bool CaseInsensitiveCharCompare(char c1, char c2)
+		{
 			return std::tolower(static_cast<unsigned char>(c1)) ==
 			       std::tolower(static_cast<unsigned char>(c2));
 		}
