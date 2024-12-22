@@ -1041,11 +1041,11 @@ namespace Animation
 				if (!middleHigh)
 					return;
 
-				auto charProxy = middleHigh->charProxy;
-				if (!charProxy)
+				auto& charController = middleHigh->charController;
+				if (!charController)
 					return;
 
-				charProxy->SetPosition(RE::NiPoint3A(rootXYZ.translate));
+				charController->SetPosition({ rootXYZ.translate.x, rootXYZ.translate.y, rootXYZ.translate.z });
 			});
 		}
 #endif

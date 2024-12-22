@@ -470,9 +470,10 @@ namespace RE
 	};
 	static_assert(sizeof(hkVector4f) == 0x10);
 
-	struct bhkCharProxyController
+	class bhkCharacterController
 	{
-		virtual ~bhkCharProxyController();
+	public:
+		virtual ~bhkCharacterController();
 
 		virtual void Unk_01();                                                        // 01
 		virtual void Unk_02();                                                        // 02
@@ -571,13 +572,6 @@ namespace RE
 		virtual void Unk_5F();                                                        // 5F
 		virtual void Unk_60();                                                        // 60
 	};
-
-	struct MiddleHighProcessData
-	{
-		std::byte unk00[0x458];
-		bhkCharProxyController* charProxy;
-	};
-	static_assert(offsetof(MiddleHighProcessData, charProxy) == 0x458);
 
 	namespace ModelDB
 	{
