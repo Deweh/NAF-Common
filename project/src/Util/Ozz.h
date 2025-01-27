@@ -234,6 +234,23 @@ namespace Util::Ozz
 		return result;
 	}
 
+	struct BoneAxes
+	{
+		ozz::math::SimdFloat4 twist;
+		ozz::math::SimdFloat4 forward;
+		ozz::math::SimdFloat4 up;
+	};
+
+	// Assumes the twist axis is along the bone's length.
+	inline BoneAxes GetBoneAxes(const ozz::math::SimdFloat4& a_boneStart, const ozz::math::SimdFloat4& a_boneEnd)
+	{
+		using namespace ozz::math;
+		BoneAxes result;
+		result.twist = a_boneEnd - a_boneStart;
+		result.forward = Cross3(result.twist, simd_float4::Load(0.0f, 0.0f, 1.0f, 0.0f));
+		result.up = Cross3(result.twist, result.forward);
+	}
+
 #ifdef TARGET_GAME_F4
 	inline RE::hkQsTransformf ToHkTransform(const ozz::math::Transform& a_transform)
 	{

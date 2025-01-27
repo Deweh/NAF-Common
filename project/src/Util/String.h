@@ -28,6 +28,7 @@ namespace Util
 
 		static const std::filesystem::path& GetGamePath();
 		static const std::filesystem::path& GetDataPath();
+		static const std::filesystem::path& GetPluginPath();
 		static std::string ToLower(const std::string_view s);
 		static std::string_view TransformToLower(std::string& s);
 		static bool CaseInsensitiveCompare(const std::string_view& s1, const std::string_view& s2);

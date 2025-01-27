@@ -38,6 +38,17 @@ namespace Util
 		return *DataPath;
 	}
 
+	const std::filesystem::path& String::GetPluginPath()
+	{
+		static std::optional<std::filesystem::path> PluginPath = std::nullopt;
+
+		if (!PluginPath) {
+			PluginPath = GetGamePath() / "Data" / "SFSE" / "Plugins";
+		}
+
+		return *PluginPath;
+	}
+
 	std::string String::ToLower(const std::string_view s)
 	{
 		std::string result(s);

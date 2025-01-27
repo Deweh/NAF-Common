@@ -1063,7 +1063,15 @@ namespace Animation
 
 			size_t remaining = std::min(4ui64, end - i);
 			for (int j = 0; j < remaining; j++) {
-				ozz::math::ToAffine(*transforms[i + j], &translations[j], &rotations[j], &scales[j]);
+				const size_t curIdx = i + j;
+				if (skeleton->controlledByGameMask[curIdx]) {
+					ozz::math::ToAffine(*transforms[i + j], &translations[j], &rotations[j], &scales[j]);
+				} else {
+					const ozz::math::Transform& rest = ozz::animation::GetJointLocalRestPose(*skeleton->data, curIdx);
+					translations[j] = ozz::math::simd_float4::Load3PtrU(&rest.translation.x);
+					rotations[j] = ozz::math::simd_float4::LoadPtrU(&rest.rotation.x);
+					scales[j] = ozz::math::simd_float4::Load3PtrU(&rest.scale.x);
+				}
 			}
 
 			auto& out = output[k];

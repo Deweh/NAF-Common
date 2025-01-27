@@ -49,6 +49,7 @@ namespace Animation
 	{
 		ozz::unique_ptr<ozz::animation::Skeleton> data = nullptr;
 		std::vector<bool> defaultBoneMask;
+		std::vector<bool> controlledByGameMask;
 		std::string name;
 #ifdef TARGET_GAME_F4
 		std::vector<RE::hkQsTransformf> havokRestPose;

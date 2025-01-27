@@ -21,13 +21,10 @@ namespace Settings
 		}
 	}
 
-	void SkeletonDescriptor::AddBone(const std::string_view name, const std::string_view parent, const ozz::math::Transform& restPose, int32_t havokIndex, const std::optional<bool> controlledByDefault)
+	void SkeletonDescriptor::AddBone(const std::string_view name, const std::string_view parent, const ozz::math::Transform& restPose, int32_t havokIndex, bool controlledByDefault, bool controlledByGame)
 	{
-		bool isControlled = true;
 		if (Util::String::CaseInsensitiveCompare(name, "Camera")) {
-			isControlled = false;
-		} else if (controlledByDefault.has_value()) {
-			isControlled = controlledByDefault.value();
+			controlledByDefault = false;
 		}
 
 		BoneData* newData = nullptr;
@@ -45,7 +42,8 @@ namespace Settings
 		newData->name = name;
 		newData->parent = parent;
 		newData->restPose = restPose;
-		newData->controlledByDefault = isControlled;
+		newData->controlledByDefault = controlledByDefault;
+		newData->controlledByGame = controlledByGame;
 	}
 
 	std::unique_ptr<Animation::OzzSkeleton> SkeletonDescriptor::BuildRuntime(const std::string_view name)
@@ -64,7 +62,8 @@ namespace Settings
 		flatJoints.reserve(bones.size());
 
 		//Pass 1: Put all joints into flat vector.
-		std::vector<std::string> maskedBones;
+		std::vector<std::string_view> maskedBones;
+		std::vector<std::string_view> uncontrolledBones;
 		for (auto& b : bones) {
 			auto& j = flatJoints.emplace_back(std::make_unique<PointerJoint>());
 			j->joint.transform = b.restPose;
@@ -72,6 +71,9 @@ namespace Settings
 
 			if (!b.controlledByDefault) {
 				maskedBones.push_back(b.name);
+			}
+			if (!b.controlledByGame) {
+				uncontrolledBones.push_back(b.name);
 			}
 		}
 
@@ -129,12 +131,21 @@ namespace Settings
 
 		int32_t numJoints = result->data->num_joints();
 		result->defaultBoneMask.reserve(numJoints);
+		result->controlledByGameMask.reserve(numJoints);
 		result->defaultBoneMask.resize(numJoints, true);
+		result->controlledByGameMask.resize(numJoints, true);
 
 		for (auto& mb : maskedBones) {
 			int32_t idx = detail::GetJointIndexCI(result->data.get(), mb);
 			if (idx >= 0) {
 				result->defaultBoneMask[idx] = false;
+			}
+		}
+
+		for (auto& ucb : uncontrolledBones) {
+			int32_t idx = detail::GetJointIndexCI(result->data.get(), ucb);
+			if (idx >= 0) {
+				result->controlledByGameMask[idx] = false;
 			}
 		}
 
