@@ -80,14 +80,24 @@ namespace Physics
 		const SimdFloat4 totalForce = springForces + a_constants.linear.force;
 		const SimdFloat4 acceleration = totalForce * simd_float4::Load1(a_constants.linear.massInverse);
 
+		linearAcceleration = acceleration;
 		IntegrateLinearStep(position, acceleration);
 	}
 
 	void Body::ProcessAngularStep(const UpdateContext& a_context, const SubStepConstants& a_constants)
 	{
 		const SimdQuaternion currentRot = rotation.current;
+
+		SimdFloat4 linearForce;
+		if (a_context.linearProps) {
+			linearForce = linearAcceleration * simd_float4::Load1(a_context.angularProps->mass);
+		} else {
+			linearForce = a_constants.angular.force;
+		}
+		linearForce = linearForce * simd_float4::Load1(a_context.angularProps->linearToAngularScale);
+
+		const SimdFloat4 externalTorque = Cross3(linearForce, TransformVector(currentRot, a_context.angularProps->upAxis));
 		const SimdFloat4 springTorques = a_context.angularProps->spring.CalculateAngularTorques(rotation, a_constants.restRotationMS);
-		const SimdFloat4 externalTorque = Cross3(a_constants.angular.force, TransformVector(currentRot, a_context.angularProps->upAxis));
 		const SimdFloat4 totalTorque = springTorques + SetW(externalTorque, simd_float4::zero());
 		const SimdFloat4 acceleration = totalTorque * simd_float4::Load1(a_constants.angular.massInverse);
 

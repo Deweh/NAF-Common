@@ -45,6 +45,7 @@ namespace Physics
 
 		DynamicProperty<ozz::math::SimdFloat4> position;
 		DynamicProperty<ozz::math::SimdQuaternion> rotation;
+		ozz::math::SimdFloat4 linearAcceleration = ozz::math::simd_float4::zero();
 
 		Transform Update(const UpdateContext& a_context);
 

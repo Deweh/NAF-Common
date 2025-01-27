@@ -19,5 +19,6 @@ namespace Physics
 		ozz::math::SimdFloat4 upAxis;
 		Spring spring;
 		float mass;
+		float linearToAngularScale{ 1.0f };
 	};
 }
