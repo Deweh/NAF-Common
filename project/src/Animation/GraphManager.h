@@ -63,14 +63,29 @@ namespace Animation
 		bool AttachGenerator(RE::Actor* a_actor, std::unique_ptr<Generator> a_gen, float a_transitionTime);
 		bool DetachGenerator(RE::Actor* a_actor, float a_transitionTime);
 		bool DetachGraph(RE::TESObjectREFR* a_graphHolder);
-		bool VisitGraph(RE::Actor* a_actor, const std::function<bool(Graph*)> visitFunc, bool create = false);
+
+		template <typename F>
+		inline bool VisitGraph(RE::Actor* a_actor, F a_visitFunc, bool a_create = false)
+		{
+			if (!a_actor)
+				return false;
+
+			auto g = GetGraph(a_actor, a_create);
+			if (!g) {
+				return false;
+			}
+
+			std::unique_lock l{ g->lock };
+			return a_visitFunc(g.get());
+		}
+		
 		void GetAllGraphs(std::vector<std::pair<RE::TESObjectREFR*, std::weak_ptr<Graph>>>& a_refsOut);
 		void Reset();
-		std::shared_ptr<Graph> GetGraph(RE::Actor* a_actor, bool create);
+		std::shared_ptr<Graph> GetGraph(RE::Actor* a_actor, bool a_create);
 		void SetGraphLoaded(RE::IAnimationGraphManagerHolder* a_graph, bool a_loaded);
 		void ProcessActor3DChange(RE::Actor* a_actor, RE::NiAVObject* a_3d);
 
 	private:
-		std::shared_ptr<Graph> GetGraphLockless(RE::Actor* a_actor, bool create);
+		std::shared_ptr<Graph> GetGraphLockless(RE::Actor* a_actor, bool a_create);
 	};
 }

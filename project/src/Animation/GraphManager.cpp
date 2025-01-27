@@ -266,17 +266,17 @@ namespace Animation
 		playerIsManaged = false;
 	}
 
-	std::shared_ptr<Graph> GraphManager::GetGraph(RE::Actor* a_actor, bool create)
+	std::shared_ptr<Graph> GraphManager::GetGraph(RE::Actor* a_actor, bool a_create)
 	{
 		std::shared_lock ls{ stateLock, std::defer_lock };
 		std::unique_lock lu{ stateLock, std::defer_lock };
-		if (create) {
+		if (a_create) {
 			lu.lock();
 		} else {
 			ls.lock();
 		}
 
-		return GetGraphLockless(a_actor, create);
+		return GetGraphLockless(a_actor, a_create);
 	}
 
 	void GraphManager::SetGraphLoaded(RE::IAnimationGraphManagerHolder* a_graph, bool a_loaded)
@@ -335,7 +335,7 @@ namespace Animation
 		return g;
 	}
 
-	std::shared_ptr<Graph> GraphManager::GetGraphLockless(RE::Actor* a_actor, bool create)
+	std::shared_ptr<Graph> GraphManager::GetGraphLockless(RE::Actor* a_actor, bool a_create)
 	{
 		if (auto iter = state->loadedGraphs.find(a_actor); iter != state->loadedGraphs.end())
 			return iter->second;
@@ -343,7 +343,7 @@ namespace Animation
 		if (auto iter = state->unloadedGraphs.find(a_actor); iter != state->unloadedGraphs.end())
 			return iter->second;
 
-		if (!create)
+		if (!a_create)
 			return nullptr;
 
 		std::shared_ptr<Graph> g = CreateGraph(a_actor);
@@ -363,13 +363,14 @@ namespace Animation
 
 	bool GraphManager::DetachGraph(RE::TESObjectREFR* a_graphHolder)
 	{
-		std::unique_lock l{ stateLock };
 		if (!a_graphHolder)
 			return false;
 
 		if (a_graphHolder == RE::PlayerCharacter::GetSingleton()) {
 			playerIsManaged = false;
 		}
+
+		std::unique_lock l{ stateLock };
 		state->managedRefs.erase(a_graphHolder->formID);
 
 		if (auto iter = state->loadedGraphs.find(a_graphHolder); iter != state->loadedGraphs.end()) {
@@ -381,20 +382,6 @@ namespace Animation
 			return true;
 		}
 		return false;
-	}
-
-	bool GraphManager::VisitGraph(RE::Actor* a_actor, const std::function<bool(Graph*)> visitFunc, bool create)
-	{
-		if (!a_actor)
-			return false;
-
-		auto g = GetGraph(a_actor, create);
-		if (!g) {
-			return false;
-		}
-
-		std::unique_lock l{ g->lock };
-		return visitFunc(g.get());
 	}
 
 	void GraphManager::GetAllGraphs(std::vector<std::pair<RE::TESObjectREFR*, std::weak_ptr<Graph>>>& a_refsOut)
