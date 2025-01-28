@@ -45,7 +45,7 @@ namespace Animation
 		virtual std::unique_ptr<IBasicAnimationContext> CreateContext() override;
 	};
 
-	struct OzzSkeleton
+	struct OzzSkeleton : public std::enable_shared_from_this<OzzSkeleton>
 	{
 		ozz::unique_ptr<ozz::animation::Skeleton> data = nullptr;
 		std::vector<bool> defaultBoneMask;

@@ -1,5 +1,6 @@
 #pragma once
 #include "Ozz.h"
+#include "Graph.h"
 #include "Sequencer.h"
 #include "Util/Event.h"
 

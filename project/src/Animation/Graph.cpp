@@ -464,9 +464,11 @@ namespace Animation
 			l->blendLayers[0].weight = .0f;
 			l->blendLayers[1].weight = .0f;
 
+#ifdef TARGET_GAME_SF
 			if (Util::String::CaseInsensitiveCompare(skeleton->name, "HumanRace")) {
 				l->eyeTrackData = std::make_unique<EyeTrackingData>();
 			}
+#endif
 
 			l->lastOutput.reserve(skeleton->data->num_joints());
 			l->lastOutput.resize(skeleton->data->num_joints(), ozz::math::Float4x4::identity());
@@ -592,9 +594,11 @@ namespace Animation
 			result += sizeof(LOADED_DATA) + (l->poseCache.transforms_capacity() * sizeof(ozz::math::SoaTransform)) + std::span(l->pendingEvents).size_bytes()
 				+ std::span(l->lastOutput).size_bytes() + (maskSize > 0 ? maskSize / 8 : 0);
 
+#ifdef TARGET_GAME_SF
 			if (l->eyeTrackData) {
 				result += sizeof(EyeTrackingData);
 			}
+#endif
 		}
 
 		if (unloadedData) {
@@ -649,6 +653,7 @@ namespace Animation
 		if (generator) {
 			return generator->GetSourceFile();
 		}
+		return "";
 	}
 
 	void Graph::UpdateFaceAnimData()

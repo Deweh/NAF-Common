@@ -273,5 +273,27 @@ namespace Util::Ozz
 			}
 		};
 	}
+
+	inline ozz::math::Transform FromHkTransform(const RE::hkQsTransformf& a_transform)
+	{
+		return ozz::math::Transform{
+			.translation = {
+				a_transform.translation.x,
+				a_transform.translation.y,
+				a_transform.translation.z
+			},
+			.rotation = {
+				a_transform.rotation.x,
+				a_transform.rotation.y,
+				a_transform.rotation.z,
+				a_transform.rotation.w
+			},
+			.scale = {
+				a_transform.scale.x,
+				a_transform.scale.y,
+				a_transform.scale.z
+			}
+		};
+	}
 #endif
 }

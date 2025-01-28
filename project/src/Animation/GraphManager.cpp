@@ -44,10 +44,18 @@ namespace Animation
 
 	void GraphManager::LoadSaveData(const SaveData& a_data)
 	{
+		const auto GetActor = [](uint32_t a_id) {
+#if defined TARGET_GAME_SF
+			return RE::TESForm::LookupByID<RE::Actor>(a_id);
+#elif defined TARGET_GAME_F4
+			return RE::TESForm::GetFormByID<RE::Actor>(a_id);
+#endif
+		};
+
 		std::unique_lock l{ stateLock };
 		for (const auto& ref : a_data.refs)
 		{
-			RE::Actor* curActor = RE::TESForm::LookupByID<RE::Actor>(ref.formId);
+			RE::Actor* curActor = GetActor(ref.formId);
 			if (!curActor)
 				continue;
 
@@ -66,7 +74,7 @@ namespace Animation
 			}
 
 			if (ref.syncOwner != 0 && ref.syncOwner != ref.formId) {
-				RE::Actor* syncActor = RE::TESForm::LookupByID<RE::Actor>(ref.syncOwner);
+				RE::Actor* syncActor = GetActor(ref.syncOwner);
 				if (!syncActor)
 					continue;
 
@@ -488,7 +496,7 @@ namespace Animation
 			auto player = RE::PlayerCharacter::GetSingleton();
 			if (auto g = gm.GetGraph(player, false); g) {
 				std::unique_lock l{ g->lock };
-				g->GetSkeletonNodes(static_cast<RE::NiNode*>(player->Get3D(!player->Is3rdPersonVisible())));
+				g->On3DChange(static_cast<RE::NiNode*>(player->Get3D(!player->Is3rdPersonVisible())));
 			}
 
 			return res;
