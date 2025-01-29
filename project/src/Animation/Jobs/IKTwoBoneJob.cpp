@@ -102,16 +102,6 @@ namespace Animation
 		return true;
 	}
 
-	uint64_t IKTwoBoneJob::ChainIDToGUID(uint8_t a_chainId)
-	{
-		return START_GUID + static_cast<uint64_t>(a_chainId);
-	}
-
-	uint8_t IKTwoBoneJob::GUIDToChainID(uint64_t a_guid)
-	{
-		return static_cast<uint8_t>(a_guid - START_GUID);
-	}
-
 	bool IKTwoBoneJob::Run(const Context& a_context)
 	{
 		Update(a_context.deltaTime,
@@ -123,9 +113,12 @@ namespace Animation
 		return flags.none(FLAG::kPendingDelete);
 	}
 
-	uint64_t IKTwoBoneJob::GetGUID()
+	IPostGenJob::GUID IKTwoBoneJob::GetGUID()
 	{
-		return ChainIDToGUID(chainId);
+		GUID result;
+		result.parts.jobType = 'IK2B';
+		result.parts.instanceNum = chainId;
+		return result;
 	}
 
 	void IKTwoBoneJob::Destroy()

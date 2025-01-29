@@ -106,7 +106,7 @@ namespace Animation
 		std::shared_ptr<const OzzSkeleton> skeleton;
 		XYZTransform rootTransform;
 		std::vector<ozz::math::Float4x4*> transforms;
-		std::vector<IPostGenJob*> postGenJobs;
+		std::vector<IPostGenJob::Owner> postGenJobs;
 		std::shared_ptr<SyncInstance> syncInst = nullptr;
 		std::unique_ptr<Sequencer> sequencer = nullptr;
 		std::unique_ptr<Generator> generator = nullptr;
@@ -131,10 +131,8 @@ namespace Animation
 		void On3DChange(NiSkeletonRootNode* a_rootNode);
 		ozz::math::Float4x4 GetCurrentTransform(size_t nodeIdx);
 		void Update(float a_deltaTime, bool a_visible, GraphEventProcessor* a_gameGraph);
-		bool AddTwoBoneIKJob(uint8_t a_chainId, const std::span<std::string_view, 3> a_nodeNames, const RE::NiPoint3& a_targetWorld, const RE::NiPoint3& a_poleDirModel = { 0.0f, 1.0f, 0.0f }, float a_transitionTime = 1.0f);
-		bool RemoveTwoBoneIKJob(uint8_t a_chainId, float a_transitionTime = 1.0f);
 		void AddPostGenJob(IPostGenJob* a_job);
-		bool RemovePostGenJob(uint64_t a_guid);
+		bool RemovePostGenJob(IPostGenJob::GUID a_guid);
 		void MountAnimationFile(const FileID& a_id, float a_transitionTime = 1.0f, bool a_request = true, bool a_detachSequencer = true);
 		void StartTransition(std::unique_ptr<Generator> a_dest, float a_transitionTime);
 		void ResetRootTransform();

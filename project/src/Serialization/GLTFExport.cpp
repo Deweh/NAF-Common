@@ -34,6 +34,13 @@ namespace Serialization
 					n.name = j;
 					asset->nodes.push_back(n);
 				}
+
+				for (size_t i = 0; i < joints.size(); i++) {
+					int16_t parent = skeleton->joint_parents()[i];
+					if (parent != ozz::animation::Skeleton::kNoParent) {
+						asset->nodes[parent].children.push_back(i);
+					}
+				}
 			}
 
 			size_t MakeBView(size_t bufferIdx, size_t length)

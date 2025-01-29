@@ -29,9 +29,12 @@ namespace Animation
 		return true;
 	}
 
-	uint64_t SpringBoneJob::GetGUID()
+	IPostGenJob::GUID SpringBoneJob::GetGUID()
 	{
-		return START_GUID + springId;
+		GUID result;
+		result.parts.jobType = 'SPRG';
+		result.parts.instanceNum = springId;
+		return result;
 	}
 
 	void SpringBoneJob::Destroy()

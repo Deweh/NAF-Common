@@ -6,8 +6,6 @@ namespace Animation
 {
 	struct IKTwoBoneJob : public IPostGenJob
 	{
-		static constexpr size_t START_GUID{ 0 };
-
 		enum FLAG : uint8_t
 		{
 			kNoFlags = 0,
@@ -37,11 +35,11 @@ namespace Animation
 		RE::NiPoint3 target;
 		RE::NiPoint3 poleDir;
 		TransitionData transition;
+		uint32_t chainId;
 		uint16_t start_node;
 		uint16_t mid_node;
 		uint16_t end_node;
 		xSE::stl::enumeration<FLAG, uint8_t> flags = FLAG::kKeepEndNodeMSRotation;
-		uint8_t chainId;
 		bool targetWithinRange = false;
 
 		IKTwoBoneJob();
@@ -56,11 +54,8 @@ namespace Animation
 			const ozz::math::Float4x4& a_invertedRoot,
 			const ozz::animation::Skeleton* a_skeleton);
 
-		static uint64_t ChainIDToGUID(uint8_t a_chainId);
-		static uint8_t GUIDToChainID(uint64_t a_guid);
-
 		virtual bool Run(const Context& a_context) override;
-		virtual uint64_t GetGUID() override;
+		virtual GUID GetGUID() override;
 		virtual void Destroy() override;
 	};
 }

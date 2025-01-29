@@ -235,68 +235,28 @@ namespace Animation
 		PERF_TIMER_COPY_VALUE(updateTime, lastUpdateMs);
 	}
 
-	bool Graph::AddTwoBoneIKJob(uint8_t a_chainId, const std::span<std::string_view, 3> a_nodeNames, const RE::NiPoint3& a_targetWorld, const RE::NiPoint3& a_poleDirModel, float a_transitionTime)
-	{
-		uint64_t newGuid = IKTwoBoneJob::ChainIDToGUID(a_chainId);
-		for (auto& j : postGenJobs) {
-			if (j->GetGUID() == newGuid) {
-				return false;
-			}
-		}
-
-		std::array<int32_t, 3> nodeIdxs;
-		if (!Util::GetJointIndexes(skeleton->data.get(), a_nodeNames, nodeIdxs))
-			return false;
-
-		if (skeleton->data->joint_parents()[nodeIdxs[2]] == ozz::animation::Skeleton::kNoParent) {
-			return false;
-		}
-
-		auto d = new IKTwoBoneJob();
-		d->target = a_targetWorld;
-		d->poleDir = a_poleDirModel;
-		d->start_node = nodeIdxs[0];
-		d->mid_node = nodeIdxs[1];
-		d->end_node = nodeIdxs[2];
-		d->chainId = a_chainId;
-		d->TransitionIn(a_transitionTime);
-		AddPostGenJob(d);
-		return true;
-	}
-
-	bool Graph::RemoveTwoBoneIKJob(uint8_t a_chainId, float a_transitionTime)
-	{
-		uint64_t targetGuid = IKTwoBoneJob::ChainIDToGUID(a_chainId);
-		for (auto& j : postGenJobs) {
-			if (j->GetGUID() == targetGuid) {
-				static_cast<IKTwoBoneJob*>(j)->TransitionOut(a_transitionTime, true);
-				return true;
-			}
-		}
-		return false;
-	}
-
 	void Graph::AddPostGenJob(IPostGenJob* a_job)
 	{
-		postGenJobs.push_back(a_job);
+		RemovePostGenJob(a_job->GetGUID());
+		postGenJobs.emplace_back(a_job);
 		flags.set(FLAGS::kHasPostGenJob);
 	}
 
-	bool Graph::RemovePostGenJob(uint64_t a_guid)
+	bool Graph::RemovePostGenJob(IPostGenJob::GUID a_guid)
 	{
-		for (auto iter = postGenJobs.begin(); iter != postGenJobs.end(); iter++)
-		{
-			if ((*iter)->GetGUID() == a_guid) {
-				(*iter)->Destroy();
-				postGenJobs.erase(iter);
+		auto it = std::find_if(postGenJobs.begin(), postGenJobs.end(), [a_guid](IPostGenJob::Owner& a_owner) {
+			return a_owner->GetGUID().full == a_guid.full;
+		});
 
-				if (postGenJobs.empty()) {
-					flags.reset(FLAGS::kHasPostGenJob);
-				}
-				return true;
+		if (it != postGenJobs.end()) {
+			postGenJobs.erase(it);
+			if (postGenJobs.empty()) {
+				flags.reset(FLAGS::kHasPostGenJob);
 			}
+			return true;
+		} else {
+			return false;
 		}
-		return false;
 	}
 
 	void Graph::MakeSyncOwner()
@@ -785,7 +745,6 @@ namespace Animation
 
 		for (auto iter = postGenJobs.begin(); iter != postGenJobs.end();) {
 			if (!(*iter)->Run(ctxt)) [[unlikely]] {
-				(*iter)->Destroy();
 				iter = postGenJobs.erase(iter);
 
 				if (postGenJobs.empty()) {
