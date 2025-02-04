@@ -9,9 +9,9 @@ namespace Settings
 	const std::filesystem::path skeletonsDir = Util::String::GetDataPath() / "Skeletons";
 	std::mutex lock;
 
-	std::shared_ptr<Animation::OzzSkeleton> GetDefaultSkeleton()
+	std::shared_ptr<Animation::OzzSkeleton>& GetDefaultSkeleton()
 	{
-		static std::shared_ptr<Animation::OzzSkeleton> defaultSkeleton = std::make_shared<Animation::OzzSkeleton>();
+		static std::shared_ptr<Animation::OzzSkeleton> defaultSkeleton;
 		return defaultSkeleton;
 	}
 
@@ -25,11 +25,8 @@ namespace Settings
 	{
 		SkeletonDescriptor skele;
 		skele.AddBone("Root", "", ozz::math::Transform::identity());
-		auto runtime = skele.BuildRuntime("DEFAULT");
-		auto defaultSkele = GetDefaultSkeleton();
-		defaultSkele->data = std::move(runtime->data);
-		defaultSkele->defaultBoneMask = std::move(runtime->defaultBoneMask);
-		defaultSkele->name = runtime->name;
+		skele.AddBone("COM", "Root", ozz::math::Transform::identity());
+		GetDefaultSkeleton() = skele.BuildRuntime("DEFAULT");
 	}
 
 	void Init()

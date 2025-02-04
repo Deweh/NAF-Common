@@ -87,7 +87,11 @@
 		{
 			"name": "generator-ninja",
 			"hidden": true,
-			"generator": "Ninja"
+			"generator": "Ninja",
+			"cacheVariables": {
+				"CMAKE_MAKE_PROGRAM": "ninja.exe",
+				"CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL"
+			}
 		},
 		{
 			"name": "compiler-msvc",
@@ -129,28 +133,6 @@
 			}
 		},
 		{
-			"name": "build-debug-msvc-f4",
-			"inherits": [
-				"common",
-				"packaging-vcpkg",
-				"buildtype-debug",
-				"generator-msvc",
-				"compiler-msvc",
-				"game-f4"
-			]
-		},
-		{
-			"name": "build-debug-msvc-sf",
-			"inherits": [
-				"common",
-				"packaging-vcpkg",
-				"buildtype-debug",
-				"generator-msvc",
-				"compiler-msvc",
-				"game-sf"
-			]
-		},
-		{
 			"name": "build-release-msvc-f4",
 			"inherits": [
 				"common",
@@ -171,28 +153,50 @@
 				"compiler-msvc",
 				"game-sf"
 			]
+		},
+		{
+			"name": "build-release-clang-f4",
+			"inherits": [
+				"common",
+				"packaging-vcpkg",
+				"buildtype-release",
+				"generator-ninja",
+				"compiler-clang-cl",
+				"game-f4"
+			]
+		},
+		{
+			"name": "build-release-clang-sf",
+			"inherits": [
+				"common",
+				"packaging-vcpkg",
+				"buildtype-release",
+				"generator-ninja",
+				"compiler-clang-cl",
+				"game-sf"
+			]
 		}
 	],
 	"buildPresets": [
 		{
-			"name": "debug-msvc-f4",
-			"configurePreset": "build-debug-msvc-f4",
-			"displayName": "3. (Debug) MSVC - MSVC [F4]"
-		},
-		{
-			"name": "debug-msvc-sf",
-			"configurePreset": "build-debug-msvc-sf",
-			"displayName": "3. (Debug) MSVC - MSVC [SF]"
-		},
-		{
 			"name": "release-msvc-f4",
 			"configurePreset": "build-release-msvc-f4",
-			"displayName": "4. (Release) MSVC - MSVC [F4]"
+			"displayName": "(Release) MSVC - MSVC [F4]"
 		},
 		{
 			"name": "release-msvc-sf",
 			"configurePreset": "build-release-msvc-sf",
-			"displayName": "4. (Release) MSVC - MSVC [SF]"
+			"displayName": "(Release) MSVC - MSVC [SF]"
+		},
+		{
+			"name": "release-clang-f4",
+			"configurePreset": "build-release-clang-f4",
+			"displayName": "(Release) Ninja - ClangCL [F4]"
+		},
+		{
+			"name": "release-clang-sf",
+			"configurePreset": "build-release-clang-sf",
+			"displayName": "(Release) Ninja - ClangCL [SF]"
 		}
 	]
 }

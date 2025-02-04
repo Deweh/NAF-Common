@@ -93,7 +93,24 @@ namespace Animation
 
 	void Graph::SetSkeleton(std::shared_ptr<const OzzSkeleton> a_descriptor)
 	{
+		const OzzSkeleton* old = skeleton.get();
 		skeleton = a_descriptor;
+
+		//If this is the first time the skeleton is being set, no additional work needs to be done.
+		if (old == nullptr)
+			return;
+
+		//If loaded, simulate a 3D reload to rebuild everything that relies on skeleton indexes & size.
+		// 
+		//Since this is only a virtual ozz skeleton and not the actual game engine skeleton,
+		//we can re-use the existing root node.
+		//
+		//If not currently loaded, this process will happen anyways when the actor loads back in.
+		if (loadedData) {
+			NiSkeletonRootNode* rootNode = loadedData->rootNode;
+			SetLoaded(false);
+			On3DChange(rootNode);
+		}
 	}
 
 	void Graph::On3DChange(NiSkeletonRootNode* a_rootNode) {

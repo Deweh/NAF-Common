@@ -105,33 +105,41 @@ namespace Util
 		return substrings;
 	}
 
-	std::optional<uint32_t> String::HexToUInt(const std::string&& s)
+	std::optional<uint32_t> String::HexToUInt(const std::string_view& s)
 	{
-		try {
-			uint32_t result = std::stoul(s, nullptr, 16);
-			return result;
-		}
-		catch (std::exception) {
+		uint32_t value;
+		const char* start = s.data();
+		std::from_chars_result result = std::from_chars(start, start + s.size(), value, 16);
+
+		if (result.ec != std::errc::invalid_argument && result.ec != std::errc::result_out_of_range) {
+			return value;
+		} else {
 			return std::nullopt;
 		}
 	}
 
-	std::optional<int32_t> String::StrToInt(const std::string& s)
+	std::optional<int32_t> String::StrToInt(const std::string_view& s)
 	{
-		try {
-			int32_t result = std::stol(s, nullptr);
-			return result;
-		} catch (std::exception) {
+		int32_t value;
+		const char* start = s.data();
+		std::from_chars_result result = std::from_chars(start, start + s.size(), value);
+
+		if (result.ec != std::errc::invalid_argument && result.ec != std::errc::result_out_of_range) {
+			return value;
+		} else {
 			return std::nullopt;
 		}
 	}
 
-	std::optional<float> String::StrToFloat(const std::string& s)
+	std::optional<float> String::StrToFloat(const std::string_view& s)
 	{
-		try {
-			float result = std::stof(s, nullptr);
-			return result;
-		} catch (std::exception) {
+		float value;
+		const char* start = s.data();
+		std::from_chars_result result = std::from_chars(start, start + s.size(), value);
+
+		if (result.ec != std::errc::invalid_argument && result.ec != std::errc::result_out_of_range) {
+			return value;
+		} else {
 			return std::nullopt;
 		}
 	}

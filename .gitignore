@@ -5,3 +5,5 @@
 *.timestamp
 deploy-*.ps1
 dist/
+.cache/
+*/compile_commands.json

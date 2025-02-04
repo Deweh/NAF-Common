@@ -34,6 +34,8 @@ namespace Animation
 
 		void set_pose_size(size_t a_size);
 		void reserve(size_t a_numPoses);
+
+		// This function may invalidate existing spans if the cache has no free handles and needs to grow to accomodate the new handle.
 		Handle acquire_handle();
 		size_t transforms_capacity() const;
 		

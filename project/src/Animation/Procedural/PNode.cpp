@@ -64,12 +64,18 @@ namespace Animation::Procedural
 		const std::vector<InputConnection>& a_inputs,
 		const std::vector<std::pair<const char*, size_t>>& a_customValues,
 		size_t a_output,
-		CreationFunctor a_createFunctor) :
+		CreationFunctor a_createFunctor,
+		const char* a_typeDisplayName,
+		CATEGORY a_category,
+		const char* a_outputDisplayName) :
 		typeName(a_typeName),
 		inputs(a_inputs),
 		customValues(a_customValues),
 		output(a_output),
-		createFunctor(a_createFunctor)
+		createFunctor(a_createFunctor),
+		typeDisplayName(a_typeDisplayName),
+		nodeCategory(a_category),
+		outputDisplayName(a_outputDisplayName)
 	{
 		GetRegisteredNodeTypes()[{ a_typeName }] = this;
 	}
@@ -80,8 +86,8 @@ namespace Animation::Procedural
 		return instance;
 	}
 
-	PNode::InputConnection::InputConnection(const char* a_name, size_t a_evalType, bool a_optional) :
-		name(a_name), evalType(a_evalType), optional(a_optional)
+	PNode::InputConnection::InputConnection(const char* a_name, size_t a_evalType, bool a_optional, const char* a_displayName) :
+		name(a_name), evalType(a_evalType), optional(a_optional), displayName(a_displayName)
 	{
 	}
 }

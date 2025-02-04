@@ -148,7 +148,7 @@ namespace Serialization
 					destInputIter++;
 				}
 			}
-
+			
 			//The actor node itself isn't actually needed for anything except marking the final output, so mark the final true node as the actor node.
 			result->actorNode = reinterpret_cast<PNode*>(result->actorNode)->inputs[0];
 
