@@ -96,9 +96,9 @@ namespace Serialization
 					values.clear();
 					
 					for (auto& v : typeInfo->customValues) {
-						auto curVal = customVals[v.first];
+						auto curVal = customVals[v.name];
 
-						switch (v.second) {
+						switch (v.evalType) {
 						case PEvaluationType<float>:
 							numVal = curVal;
 							values.emplace_back(static_cast<float>(numVal));

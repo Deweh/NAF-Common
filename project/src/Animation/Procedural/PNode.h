@@ -66,14 +66,14 @@ namespace Animation::Procedural
 	public:
 		enum CATEGORY : uint8_t
 		{
-			kPoseCreators = 0,
-			kPoseModifiers = 1,
-			kValueCreators = 2,
-			kValueModifiers = 3,
-			kVectorCreators = 4,
-			kVectorModifiers = 5,
-			kDataCreators = 6,
-			kActor = 7
+			kPoseCreators,
+			kPoseModifiers,
+			kValueCreators,
+			kValueModifiers,
+			kVectorCreators,
+			kVectorModifiers,
+			kDataCreators,
+			kActor
 		};
 
 		struct InputConnection
@@ -93,7 +93,7 @@ namespace Animation::Procedural
 
 			Registration(const char* a_typeName,
 				const std::vector<InputConnection>& a_inputs,
-				const std::vector<std::pair<const char*, size_t>>& a_customValues,
+				const std::vector<InputConnection>& a_customValues,
 				size_t a_output,
 				CreationFunctor a_createFunctor,
 				const char* a_typeDisplayName = "",
@@ -102,7 +102,7 @@ namespace Animation::Procedural
 
 			const char* typeName;
 			std::vector<InputConnection> inputs;
-			std::vector<std::pair<const char*, size_t>> customValues;
+			std::vector<InputConnection> customValues;
 			size_t output;
 			CreationFunctor createFunctor;
 
