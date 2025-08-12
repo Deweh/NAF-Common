@@ -311,11 +311,7 @@ namespace Animation
 	{
 		if (auto g = GetGraph(a_actor, false); g) {
 			std::unique_lock l{ g->lock };
-#if defined TARGET_GAME_F4
-			g->On3DChange(static_cast<RE::NiNode*>(a_3d));
-#elif defined TARGET_GAME_SF
-			g->On3DChange(static_cast<RE::BGSFadeNode*>(a_3d));
-#endif
+			g->On3DChange(static_cast<NiSkeletonRootNode*>(a_3d));
 			bool isLoaded = g->flags.none(Graph::FLAGS::kUnloaded3D);
 			l.unlock();
 			SetGraphLoaded(a_actor, isLoaded);

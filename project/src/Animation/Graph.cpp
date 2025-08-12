@@ -442,7 +442,7 @@ namespace Animation
 			l->blendLayers[1].weight = .0f;
 
 #ifdef TARGET_GAME_SF
-			if (Util::String::CaseInsensitiveCompare(skeleton->name, "HumanRace")) {
+			if (Util::Ozz::GetJointIndexes(skeleton->data.get(), "L_Eye", "R_Eye").has_value()) {
 				l->eyeTrackData = std::make_unique<EyeTrackingData>();
 			}
 #endif

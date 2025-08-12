@@ -552,8 +552,8 @@ namespace RE
 		virtual void Unk_4B();                                                        // 4B
 		virtual void Unk_4C();                                                        // 4C
 		virtual void Unk_4D();                                                        // 4D
-		virtual void* SetLinearVelocityImpl(const hkVector4f& a_velocity);            // 4E
-		virtual void Unk_4F();                                                        // 4F
+		virtual void* Unk_4E();                                                       // 4E
+		virtual void* SetLinearVelocityImpl(const hkVector4f& a_velocity);            // 4F
 		virtual void Unk_50();                                                        // 50
 		virtual void Unk_51();                                                        // 51
 		virtual void Unk_52();                                                        // 52

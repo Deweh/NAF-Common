@@ -46,6 +46,28 @@ namespace Util
 	int GetRandomInt(int a_min, int a_max);
 	float GetRandomFloat(float a_min, float a_max);
 
+	// Lock-free structure that supports a single writer thread and any number of reader threads.
+	template <typename T>
+	class DoubleBuffered
+	{
+	public:
+		void write(const T& a_data)
+		{
+			std::int32_t backBuffer = 1 - activeBuffer.load(std::memory_order_relaxed);
+			buffers[backBuffer] = a_data;
+			activeBuffer.store(backBuffer, std::memory_order_release);
+		}
+
+		T read() const
+		{
+			std::int32_t currentBuffer = activeBuffer.load(std::memory_order_acquire);
+			return buffers[currentBuffer];
+        }
+	private:
+		std::array<T, 2> buffers;
+		std::atomic_int32_t activeBuffer = 0;
+    };
+
 	template <typename T, typename M = std::mutex, typename WL = std::unique_lock<M>, typename RL = std::shared_lock<M>>
 	class Guarded
 	{

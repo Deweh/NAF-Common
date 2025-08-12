@@ -152,6 +152,7 @@ namespace Animation
 		uint32_t GetTargetFormID() const;
 		uint32_t GetSyncOwnerFormID() const;
 		std::string_view GetCurrentAnimationFile() const;
+		void UpdateRestPose();
 
 	protected:
 		void AdvanceTransitionTime(float a_deltaTime);
@@ -160,7 +161,6 @@ namespace Animation
 		void UpdatePostGenJobs(float a_deltaTime, const std::span<ozz::math::SoaTransform>& a_output);
 		void PushAnimationOutput(float a_deltaTime, const std::span<ozz::math::SoaTransform>& a_output);
 		void PushRootOutput(bool a_visible);
-		void UpdateRestPose();
 		void SnapshotPose();
 		void UpdateFaceAnimData();
 		void SetFaceMorphsControlled(bool a_controlled, float a_transitionTime);

@@ -40,8 +40,9 @@ namespace Animation
 				return;
 			}
 		}
-		NotifyAnimationRequested(a_requester, a_id, false);
 		reqData->push_back(RequestData{ .requester = a_requester, .anim = aID });
+		reqData.unlock();
+		NotifyAnimationRequested(a_requester, a_id, false);
 		ProcessRequests();
 	}
 
