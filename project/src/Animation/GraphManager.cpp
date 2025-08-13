@@ -403,6 +403,7 @@ namespace Animation
 	GraphManager& gm = *GraphManager::GetSingleton();
 
 #ifdef TARGET_GAME_SF
+	/*
 	static Util::Call5Hook<void(RE::IAnimationGraphManagerHolder*, RE::BSAnimationUpdateData*, void*)> GraphUpdateHook(118488, 0x61, "IAnimationGraphManagerHolder::UpdateAnimationGraphManager",
 		[](RE::IAnimationGraphManagerHolder* a_graphHolder, RE::BSAnimationUpdateData* a_updateData, void* a_graph) {
 			std::shared_lock l{ gm.stateLock };
@@ -430,8 +431,9 @@ namespace Animation
 				GraphUpdateHook(a_graphHolder, a_updateData, a_graph);
 			}
 		});
+*/
 
-	static Util::VFuncHook<void*(void*, void*)> PerspectiveSwitchHook(422984, 0x1, "::HandlePlayerPerspectiveSwitchForEyeTracking",
+	static Util::VFuncHook<void*(void*, void*)> PerspectiveSwitchHook(451974, 0x1, "::HandlePlayerPerspectiveSwitchForEyeTracking",
 		[](void* a1, void* a2) -> void* {
 			void* res = PerspectiveSwitchHook(a1, a2);
 
@@ -443,7 +445,7 @@ namespace Animation
 			return res;
 		});
 
-	static Util::VFuncHook<void*(RE::Actor*, RE::NiAVObject*, bool, bool)> ActorSet3DHook(422688, 0xA8, "Actor::Set3D",
+	static Util::VFuncHook<void*(RE::Actor*, RE::NiAVObject*, bool, bool)> ActorSet3DHook(451614, 0xA8, "Actor::Set3D",
 		[](RE::Actor* a_this, RE::NiAVObject* a_3d, bool a_flag1, bool a_flag2) -> void* {
 			void* result = ActorSet3DHook(a_this, a_3d, a_flag1, a_flag2);
 			gm.ProcessActor3DChange(a_this, a_3d);

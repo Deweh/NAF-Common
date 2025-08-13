@@ -137,7 +137,7 @@ namespace Animation::Face
 		d->noBlink.clear();
 		d->controlledDatas.clear();
 	}
-
+	/*
 	static Util::Call5Hook<void(RE::BSFaceGenAnimationData*, float)> BlinkUpdateHook(TargetGameVal<size_t>(3139, 113796), TargetGameVal<size_t>(0x53, 0x147), "BSFaceGenAnimationData::UpdateBlinking",
 		[](RE::BSFaceGenAnimationData* a1, float a2) {
 			static Manager* m = Manager::GetSingleton();
@@ -153,8 +153,9 @@ namespace Animation::Face
 #endif
 			}
 		});
-
+*/
 #if defined TARGET_GAME_SF
+/*
 	static Util::Call5Hook<bool(RE::BSFaceGenAnimationData*, float, bool)> FaceUpdateHook(113883, 0xE0, "BSFaceGenAnimationData::Update",
 		[](RE::BSFaceGenAnimationData* a1, float a2, bool a3) -> bool {
 			static Manager* m = Manager::GetSingleton();
@@ -169,6 +170,7 @@ namespace Animation::Face
 			}
 			return res;
 		});
+*/
 #elif defined TARGET_GAME_F4
 	static Util::Call5Hook<bool(RE::BSFaceGenAnimationData*, float, bool, float)> FaceUpdateHook(317245, 0xBA, "BSFaceGenAnimationData::Update",
 		[](RE::BSFaceGenAnimationData* a1, float a2, bool a3, float a4) -> bool {
