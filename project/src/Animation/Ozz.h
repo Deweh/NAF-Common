@@ -52,8 +52,7 @@ namespace Animation
 		std::vector<bool> controlledByGameMask;
 		std::string name;
 #ifdef TARGET_GAME_F4
-		std::vector<RE::hkQsTransformf> havokRestPose;
-		std::vector<int32_t> havokToOzzIdxs;
+		std::vector<int32_t> ozzToHavokIdxs;
 #endif
 	};
 }

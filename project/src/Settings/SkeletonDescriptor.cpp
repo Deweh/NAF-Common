@@ -21,7 +21,7 @@ namespace Settings
 		}
 	}
 
-	void SkeletonDescriptor::AddBone(const std::string_view name, const std::string_view parent, const ozz::math::Transform& restPose, int32_t havokIndex, bool controlledByDefault, bool controlledByGame)
+	void SkeletonDescriptor::AddBone(const std::string_view name, const std::string_view parent, const ozz::math::Transform& restPose, bool controlledByDefault, bool controlledByGame)
 	{
 		if (Util::String::CaseInsensitiveCompare(name, "Camera")) {
 			controlledByDefault = false;
@@ -37,13 +37,12 @@ namespace Settings
 
 		if (newData == nullptr) {
 			newData = std::addressof(bones.emplace_back());
+			newData->name = name;
+			newData->parent = parent;
+			newData->restPose = restPose;
+			newData->controlledByDefault = controlledByDefault;
+			newData->controlledByGame = controlledByGame;
 		}
-		
-		newData->name = name;
-		newData->parent = parent;
-		newData->restPose = restPose;
-		newData->controlledByDefault = controlledByDefault;
-		newData->controlledByGame = controlledByGame;
 	}
 
 	std::unique_ptr<Animation::OzzSkeleton> SkeletonDescriptor::BuildRuntime(const std::string_view name)
@@ -115,16 +114,13 @@ namespace Settings
 		result->data = std::move(baseData);
 #ifdef TARGET_GAME_F4
 		if (havokOrder.size() > 0) {
-			result->havokToOzzIdxs.reserve(havokOrder.size());
-			result->havokRestPose.reserve(havokOrder.size());
-			for (const auto& havokBoneName : havokOrder) {
-				int32_t idx = detail::GetJointIndexCI(result->data.get(), havokBoneName);
-				ozz::math::Transform rest = ozz::math::Transform::identity();
-				if (idx >= 0) {
-					rest = ozz::animation::GetJointLocalRestPose(*result->data, idx);
+			int32_t numJoints = result->data->num_joints();
+			result->ozzToHavokIdxs.resize(numJoints, -1);
+			for (size_t i = 0; i < havokOrder.size(); i++) {
+				int32_t idx = detail::GetJointIndexCI(result->data.get(), havokOrder[i]);
+				if (idx >= 0 && idx < numJoints) {
+					result->ozzToHavokIdxs[idx] = static_cast<int32_t>(i);
 				}
-				result->havokToOzzIdxs.push_back(idx);
-				result->havokRestPose.push_back(Util::Ozz::ToHkTransform(rest));
 			}
 		}
 #endif

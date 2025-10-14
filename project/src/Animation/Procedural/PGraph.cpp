@@ -103,6 +103,178 @@ namespace Animation::Procedural
 		return true;
 	}
 
+	bool PGraph::SortNodesMinimizePoseMemory(std::vector<PNode*>& a_sortedNodes)
+	{
+		struct NodeState
+		{
+			size_t unsatisfiedInputs = 0;
+			size_t remainingPoseUses = 0;
+			size_t depth = 0;
+			bool scheduled = false;
+			bool producesPose = false;
+			std::vector<PNode*> dependents;
+		};
+
+		struct CandidateScore
+		{
+			size_t liveDuringEvaluation = 0;
+			size_t liveAfterEvaluation = 0;
+			size_t releasedPoses = 0;
+			size_t unlockedDependents = 0;
+			size_t originalIndex = 0;
+		};
+
+		a_sortedNodes.reserve(nodes.size());
+
+		std::unordered_map<PNode*, NodeState> nodeStates;
+		std::unordered_map<PNode*, size_t> originalOrder;
+		nodeStates.reserve(nodes.size());
+		originalOrder.reserve(nodes.size());
+
+		for (auto iter = nodes.begin(); iter != nodes.end(); iter++) {
+			auto node = iter->get();
+			auto& state = nodeStates[node];
+			state.producesPose = node->GetTypeInfo()->output == PEvaluationType<PoseCache::Handle>;
+			originalOrder[node] = std::distance(nodes.begin(), iter);
+		}
+
+		for (auto& node : nodes) {
+			auto nodePtr = node.get();
+			auto& nodeState = nodeStates[nodePtr];
+
+			for (uint64_t input : node->inputs) {
+				if (input == 0)
+					continue;
+
+				auto dependency = reinterpret_cast<PNode*>(input);
+				auto depIter = nodeStates.find(dependency);
+				if (depIter == nodeStates.end()) {
+					// Input points outside the graph's node set.
+					return false;
+				}
+
+				nodeState.unsatisfiedInputs++;
+				depIter->second.dependents.push_back(nodePtr);
+				if (depIter->second.producesPose) {
+					depIter->second.remainingPoseUses++;
+				}
+			}
+		}
+
+		std::vector<PNode*> readyNodes;
+		readyNodes.reserve(nodes.size());
+		for (auto& node : nodes) {
+			if (nodeStates[node.get()].unsatisfiedInputs == 0) {
+				readyNodes.push_back(node.get());
+			}
+		}
+
+		size_t livePoseCount = 0;
+		while (!readyNodes.empty()) {
+			size_t bestIdx = 0;
+			CandidateScore bestScore{};
+			bool foundBest = false;
+
+			for (size_t readyIdx = 0; readyIdx < readyNodes.size(); readyIdx++) {
+				auto candidate = readyNodes[readyIdx];
+				auto& candidateState = nodeStates[candidate];
+
+				std::unordered_map<PNode*, size_t> poseInputsUsed;
+				for (uint64_t input : candidate->inputs) {
+					if (input == 0)
+						continue;
+
+					auto dependency = reinterpret_cast<PNode*>(input);
+					if (nodeStates[dependency].producesPose) {
+						poseInputsUsed[dependency]++;
+					}
+				}
+
+				CandidateScore score;
+				score.liveDuringEvaluation = livePoseCount + (candidateState.producesPose ? 1 : 0);
+				score.releasedPoses = 0;
+				for (auto& [dependency, useCount] : poseInputsUsed) {
+					if (nodeStates[dependency].remainingPoseUses <= useCount) {
+						score.releasedPoses++;
+					}
+				}
+
+				score.liveAfterEvaluation = score.liveDuringEvaluation - score.releasedPoses;
+				score.unlockedDependents = 0;
+				for (auto dependent : candidateState.dependents) {
+					if (!nodeStates[dependent].scheduled && nodeStates[dependent].unsatisfiedInputs == 1) {
+						score.unlockedDependents++;
+					}
+				}
+				score.originalIndex = originalOrder[candidate];
+
+				if (!foundBest ||
+					score.liveDuringEvaluation < bestScore.liveDuringEvaluation ||
+					(score.liveDuringEvaluation == bestScore.liveDuringEvaluation && score.liveAfterEvaluation < bestScore.liveAfterEvaluation) ||
+					(score.liveDuringEvaluation == bestScore.liveDuringEvaluation && score.liveAfterEvaluation == bestScore.liveAfterEvaluation && score.releasedPoses > bestScore.releasedPoses) ||
+					(score.liveDuringEvaluation == bestScore.liveDuringEvaluation && score.liveAfterEvaluation == bestScore.liveAfterEvaluation && score.releasedPoses == bestScore.releasedPoses && score.unlockedDependents > bestScore.unlockedDependents) ||
+					(score.liveDuringEvaluation == bestScore.liveDuringEvaluation && score.liveAfterEvaluation == bestScore.liveAfterEvaluation && score.releasedPoses == bestScore.releasedPoses && score.unlockedDependents == bestScore.unlockedDependents && score.originalIndex < bestScore.originalIndex)) {
+					bestIdx = readyIdx;
+					bestScore = score;
+					foundBest = true;
+				}
+			}
+
+			auto scheduledNode = readyNodes[bestIdx];
+			readyNodes.erase(readyNodes.begin() + bestIdx);
+
+			auto& scheduledState = nodeStates[scheduledNode];
+			scheduledState.scheduled = true;
+			a_sortedNodes.push_back(scheduledNode);
+
+			livePoseCount += scheduledState.producesPose ? 1 : 0;
+			std::unordered_map<PNode*, size_t> poseInputsUsed;
+			for (uint64_t input : scheduledNode->inputs) {
+				if (input == 0)
+					continue;
+
+				auto dependency = reinterpret_cast<PNode*>(input);
+				auto& dependencyState = nodeStates[dependency];
+				scheduledState.depth = std::max(scheduledState.depth, dependencyState.depth + 1);
+				if (dependencyState.producesPose) {
+					poseInputsUsed[dependency]++;
+				}
+			}
+
+			if (scheduledState.depth > MAX_DEPTH) {
+				// Maximum dependency chain depth exceeded.
+				return false;
+			}
+
+			for (auto& [dependency, useCount] : poseInputsUsed) {
+				auto& dependencyState = nodeStates[dependency];
+				if (dependencyState.remainingPoseUses <= useCount) {
+					dependencyState.remainingPoseUses = 0;
+					livePoseCount--;
+				} else {
+					dependencyState.remainingPoseUses -= useCount;
+				}
+			}
+
+			for (auto dependent : scheduledState.dependents) {
+				auto& dependentState = nodeStates[dependent];
+				if (dependentState.unsatisfiedInputs > 0) {
+					dependentState.unsatisfiedInputs--;
+					if (dependentState.unsatisfiedInputs == 0) {
+						readyNodes.push_back(dependent);
+					}
+				}
+			}
+		}
+
+		if (a_sortedNodes.size() != nodes.size()) {
+			// Cycle detected in graph.
+			return false;
+		}
+
+		return true;
+	}
+
 	void PGraph::InsertCacheReleaseNodes(std::vector<PNode*>& a_sortedNodes)
 	{
 		std::map<PNode*, size_t> lastUsageMap;

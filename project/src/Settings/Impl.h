@@ -4,8 +4,8 @@ namespace Animation
 {
 	class IAnimationFile;
 	class IBasicAnimation;
-	class AnimID;
-	class OzzSkeleton;
+	struct AnimID;
+	struct OzzSkeleton;
 }
 
 namespace Settings

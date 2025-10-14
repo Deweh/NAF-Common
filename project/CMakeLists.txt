@@ -74,7 +74,7 @@ file(GLOB_RECURSE SRC_FILES src/*.cpp)
 # runtime
 add_library(
 	${PROJECT_NAME}
-	STATIC
+	OBJECT
 		${SRC_FILES}
 		.clang-format
 		vcpkg.json)
@@ -109,7 +109,6 @@ if (MSVC)
 		${PROJECT_NAME}
 		PRIVATE
 			/MP
-			/await
 			/W0
 			/WX
 			/permissive-

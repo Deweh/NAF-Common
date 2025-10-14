@@ -1,5 +1,4 @@
 #include "PBlend2DNode.h"
-#include "delaunator-header-only.hpp"
 
 namespace Animation::Procedural
 {
@@ -126,7 +125,7 @@ namespace Animation::Procedural
 			tempPoints.push_back(pt.x);
 			tempPoints.push_back(pt.y);
 		}
-
+		/*
 		delaunator::Delaunator d(tempPoints);
 
 		const auto GetAdjacentTri = [&d](size_t a_edgeIdx) -> size_t{
@@ -162,7 +161,7 @@ namespace Animation::Procedural
 			tri.walkAdjacencies[1] = GetAdjacentTri(i + 2);
 			tri.walkAdjacencies[2] = GetAdjacentTri(i);
 		}
-
+*/
 		return true;
 	}
 }

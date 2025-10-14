@@ -10,6 +10,8 @@ namespace Serialization
 
 namespace Animation::Procedural
 {
+	class BlendGraphBuilder;
+
 	class PGraph : public IAnimationFile
 	{
 	public:
@@ -31,8 +33,10 @@ namespace Animation::Procedural
 
 	protected:
 		friend class Serialization::BlendGraphImport;
+		friend class BlendGraphBuilder;
 
 		bool SortNodes(std::vector<PNode*>& a_sortedNodes);
+		bool SortNodesMinimizePoseMemory(std::vector<PNode*>& a_sortedNodes);
 		void InsertCacheReleaseNodes(std::vector<PNode*>& a_sortedNodes);
 		void PointersToIndexes(std::vector<PNode*>& a_sortedNodes);
 		void EmplaceNodeOrder(std::vector<PNode*>& a_sortedNodes);

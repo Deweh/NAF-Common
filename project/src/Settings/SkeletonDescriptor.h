@@ -23,7 +23,7 @@ namespace Settings
 		std::vector<std::string_view> havokOrder;
 #endif
 
-		void AddBone(const std::string_view name, const std::string_view parent, const ozz::math::Transform& restPose, int32_t havokIndex = -1, bool controlledByDefault = true, bool controlledByGame = true);
+		void AddBone(const std::string_view name, const std::string_view parent, const ozz::math::Transform& restPose, bool controlledByDefault = true, bool controlledByGame = true);
 		std::unique_ptr<Animation::OzzSkeleton> BuildRuntime(const std::string_view name);
 		std::optional<size_t> GetBoneIndex(const std::string& name) const;
 	};

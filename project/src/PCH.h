@@ -1,5 +1,6 @@
 #pragma once
 #define _USE_MATH_DEFINES
+#define IMGUI_DEFINE_MATH_OPERATORS
 
 // c
 #include <cassert>
