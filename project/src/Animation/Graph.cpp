@@ -922,7 +922,28 @@ namespace Animation
 		flags.set(FLAGS::kGeneratedFirstPose);
 		const auto& source = loadedData->lastOutput;
 		const auto& dest = transforms;
-		const auto& mask = loadedData->boneMask;
+		const auto generatorMask = generator ? generator->GetBoneMask() : nullptr;
+		const auto& mask = generatorMask && generatorMask->size() == transforms.size() ? *generatorMask : loadedData->boneMask;
+
+		// Bones the game doesn't animate keep whatever was written last, so one that's masked off again returns to rest.
+		auto& applied = loadedData->appliedMask;
+		if (applied != mask) {
+			if (applied.size() == mask.size()) {
+				std::vector<ozz::math::Float4x4> rest;
+				for (size_t i = 0; i < mask.size(); i++) {
+					if (!applied[i] || mask[i] || skeleton->controlledByGameMask[i])
+						continue;
+					if (rest.empty()) {
+						const auto restPoses = skeleton->data->joint_rest_poses();
+						std::vector<ozz::math::SoaTransform> restSoa(restPoses.begin(), restPoses.end());
+						rest.resize(skeleton->data->num_joints());
+						Util::Ozz::UnpackSoaTransforms(restSoa, rest, skeleton->data.get());
+					}
+					*dest[i] = rest[i];
+				}
+			}
+			applied = mask;
+		}
 
 		size_t end = transforms.size();
 		for (size_t i = 0; i < end; i++) {

@@ -1,6 +1,8 @@
 #include "UI/ImguiMenu.h"
+#include "UI/StudioMenuEx.h"
 
 #include "RE/CommonMisc.h"
+#include "Util/String.h"
 #include "imgui/ImGuizmo.h"
 #include "imgui/imgui_internal.h"
 #undef max
@@ -34,6 +36,10 @@ namespace UI
         if(m_renderer) {
             m_renderer->SetMouseReleased(m_isOpen);
         }
+		ImGui::GetIO().MouseDrawCursor = m_isOpen;
+		if(m_isOpen){
+			::SetCursor(nullptr);
+		}
 	}
 
 	bool ImguiMenu::IsOpen() const
@@ -55,7 +61,14 @@ namespace UI
 			return;
 		}
 
+		auto studioMenu = StudioMenuEx::GetSingleton();
+		if (studioMenu->HasOpenProject()) {
+			studioMenu->Draw(m_renderer);
+			return;
+		}
+
 		ImGui::SetNextWindowSize(ImVec2(1100.0f, 760.0f), ImGuiCond_FirstUseEver);
+		const bool wasOpen = m_isOpen;
 		if (!ImGui::Begin("NAF Menu", &m_isOpen, ImGuiWindowFlags_MenuBar)) {
 			ImGui::End();
 			return;
@@ -84,14 +97,29 @@ namespace UI
 
 	void ImguiMenu::DrawStudioTab()
 	{
-		static std::vector<std::string> existingProjects{
-			"WalkCycle",
-			"CombatIdle",
-			"DialogueGesture"
-		};
-		static std::string selectedProject;
+		struct ProjectEntry { std::string name; std::filesystem::path path; };
+		static std::vector<ProjectEntry> existingProjects;
+		static std::filesystem::path selectedProject;
 		static bool creatingNewProject = false;
 		static char newProjectName[128]{};
+		static std::string status;
+		static bool refreshProjects = true;
+		const auto projectsPath = Util::String::GetDataPath() / "Projects";
+		if (refreshProjects) {
+			existingProjects.clear();
+			std::error_code ec;
+			std::filesystem::create_directories(projectsPath, ec);
+			if (!ec) {
+				for (const auto& entry : std::filesystem::directory_iterator(projectsPath, ec)) {
+					if (entry.is_regular_file() && Util::String::CaseInsensitiveCompare(entry.path().extension().string(), ".nafproject")) {
+						existingProjects.push_back({ entry.path().stem().string(), entry.path() });
+					}
+				}
+				std::ranges::sort(existingProjects, [](const auto& a, const auto& b) { return Util::String::CaseInsensitiveLess{}(a.name, b.name); });
+			}
+			status = ec ? "Could not enumerate projects: " + ec.message() : "";
+			refreshProjects = false;
+		}
 
 		ImGui::TextUnformatted("Animation Studio Setup");
 		ImGui::Separator();
@@ -103,12 +131,11 @@ namespace UI
 		if (!existingProjects.empty()) {
 			ImGui::TextUnformatted("Existing Projects");
 			ImGui::BeginChild("##project_list", ImVec2(0.0f, 180.0f), true);
-			for (const auto& projectName : existingProjects) {
-				const bool isSelected = selectedProject == projectName && !creatingNewProject;
-				if (ImGui::Selectable(projectName.c_str(), isSelected)) {
-					selectedProject = projectName;
+			for (const auto& project : existingProjects) {
+				const bool isSelected = selectedProject == project.path && !creatingNewProject;
+				if (ImGui::Selectable(project.name.c_str(), isSelected)) {
+					selectedProject = project.path;
 					creatingNewProject = false;
-					// TODO: Pass selectedProject to StudioMenu when available.
 				}
 			}
 			ImGui::EndChild();
@@ -132,30 +159,49 @@ namespace UI
 			ImGui::TextUnformatted("Create New Project");
 			ImGui::InputText("Project Name", newProjectName, sizeof(newProjectName));
 
-			const bool hasProjectName = newProjectName[0] != '\0';
-			if (!hasProjectName) {
+			const std::string projectName = newProjectName;
+			const bool hasProjectName = !projectName.empty() && projectName != "." && projectName != ".." && projectName.find_first_of("<>:\"/\\|?*") == std::string::npos && static_cast<unsigned char>(projectName.back()) > 0x20 && projectName.back() != '.';
+			const bool nameTaken = hasProjectName && std::ranges::any_of(existingProjects, [&](const auto& a_project) { return Util::String::CaseInsensitiveCompare(a_project.name, projectName); });
+			if (!hasProjectName || nameTaken) {
 				ImGui::BeginDisabled();
 			}
 
 			if (ImGui::Button("Create")) {
-				selectedProject = newProjectName;
-				existingProjects.push_back(selectedProject);
 				creatingNewProject = false;
+				StudioMenuEx::GetSingleton()->NewProject(projectName);
 				newProjectName[0] = '\0';
-				// TODO: Pass selectedProject to StudioMenu when available.
+				refreshProjects = true;
+				ImGui::EndChild();
+				return;
 			}
 
-			if (!hasProjectName) {
+			if (!hasProjectName || nameTaken) {
 				ImGui::EndDisabled();
+			}
+			if (nameTaken) {
+				ImGui::SameLine();
+				ImGui::TextDisabled("A project with this name already exists.");
 			}
 		}
 
 		if (!selectedProject.empty()) {
 			ImGui::Spacing();
 			ImGui::Separator();
-			ImGui::Text("Selected Project: %s", selectedProject.c_str());
-			ImGui::TextDisabled("StudioMenu handoff pending implementation.");
+			ImGui::Text("Selected Project: %s", selectedProject.stem().string().c_str());
+			if (ImGui::Button("Open Project")) {
+				const auto result = StudioMenuEx::GetSingleton()->OpenProject(selectedProject);
+				status = result ? "" : result.error();
+				if (result) {
+					selectedProject.clear();
+					refreshProjects = true;
+					ImGui::EndChild();
+					return;
+				}
+			}
 		}
+		ImGui::SameLine();
+		if (ImGui::Button("Refresh")) refreshProjects = true;
+		if (!status.empty()) ImGui::TextWrapped("%s", status.c_str());
 
 		ImGui::EndChild();
 	}

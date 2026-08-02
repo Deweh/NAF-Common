@@ -23,7 +23,13 @@ size_t Animation::OzzAnimation::GetSizeBytes()
 		}
 	}
 
+	result += boneMask.capacity() / 8;
 	return result;
+}
+
+const std::vector<bool>* Animation::OzzAnimation::GetBoneMask()
+{
+	return boneMask.empty() ? nullptr : &boneMask;
 }
 
 void Animation::OzzAnimation::SampleBoneAnimation(float a_time, const ozz::span<ozz::math::SoaTransform>& a_transformsOut, IBasicAnimationContext* a_context)

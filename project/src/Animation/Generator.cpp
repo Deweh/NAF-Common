@@ -18,6 +18,7 @@ namespace Animation
 	bool Generator::RequiresRestPose() { return false; }
 	bool Generator::RequiresPhysicsSystem() { return false; }
 	size_t Generator::GetSizeBytes() { return sizeof(Generator); }
+	const std::vector<bool>* Generator::GetBoneMask() { return nullptr; }
 
 	LinearClipGenerator::LinearClipGenerator(const std::shared_ptr<IBasicAnimation>& a_anim)
 	{
@@ -149,6 +150,11 @@ namespace Animation
 	size_t LinearClipGenerator::GetSizeBytes()
 	{
 		return sizeof(LinearClipGenerator) + context->GetSizeBytes();
+	}
+
+	const std::vector<bool>* LinearClipGenerator::GetBoneMask()
+	{
+		return anim ? anim->GetBoneMask() : nullptr;
 	}
 
 	ProceduralGenerator::ProceduralGenerator(const std::shared_ptr<Procedural::PGraph>& a_graph)

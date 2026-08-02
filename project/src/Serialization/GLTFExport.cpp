@@ -1,5 +1,6 @@
 #include "GLTFExport.h"
 #include "Settings/Settings.h"
+#include "zstr.hpp"
 
 namespace Serialization
 {
@@ -14,25 +15,29 @@ namespace Serialization
 			Rot,
 			Time,
 			Trans,
+			Scale,
 			Morphs
 		};
+
+		using AccessorRange = std::optional<std::pair<double, double>>;
 
 		struct ExportUtil
 		{
 			void Init(const ozz::animation::Skeleton* skeleton)
 			{
 				asset = std::make_unique<fastgltf::Asset>();
-				fastgltf::Node n;
-				n.transform = fastgltf::TRS{
-					.translation = { 0.0f, 0.0f, 0.0f },
-					.rotation = { 0.0f, 0.0f, 0.0f, 1.0f },
-					.scale = { 1.0f, 1.0f, 1.0f }
-				};
-
+				// Nodes carry the rest pose, so tools show a sane bind pose. Animated channels override it.
 				auto joints = skeleton->joint_names();
-				for (auto& j : joints) {
-					n.name = j;
-					asset->nodes.push_back(n);
+				for (int32_t i = 0; i < static_cast<int32_t>(joints.size()); i++) {
+					const auto rest = ozz::animation::GetJointLocalRestPose(*skeleton, i);
+					fastgltf::Node n;
+					n.name = joints[i];
+					n.transform = fastgltf::TRS{
+						.translation = { rest.translation.x, rest.translation.y, rest.translation.z },
+						.rotation = { rest.rotation.x, rest.rotation.y, rest.rotation.z, rest.rotation.w },
+						.scale = { rest.scale.x, rest.scale.y, rest.scale.z }
+					};
+					asset->nodes.push_back(std::move(n));
 				}
 
 				for (size_t i = 0; i < joints.size(); i++) {
@@ -71,11 +76,14 @@ namespace Serialization
 				return DedupeLastBuffer(bufType, buf);
 			}
 
-			size_t MakeAccessor(double min, double max, fastgltf::AccessorType type, size_t count, size_t bufferView)
+			// a_range is for scalar accessors only. glTF requires it on animation inputs; outputs leave it out.
+			size_t MakeAccessor(AccessorRange a_range, fastgltf::AccessorType type, size_t count, size_t bufferView)
 			{
 				auto& acc = asset->accessors.emplace_back();
-				acc.min.emplace<std::pmr::vector<double>>(1, min);
-				acc.max.emplace<std::pmr::vector<double>>(1, max);
+				if (a_range) {
+					acc.min.emplace<std::pmr::vector<double>>(1, a_range->first);
+					acc.max.emplace<std::pmr::vector<double>>(1, a_range->second);
+				}
 				acc.type = type;
 				acc.count = count;
 				acc.componentType = fastgltf::ComponentType::Float;
@@ -83,7 +91,7 @@ namespace Serialization
 				return (asset->accessors.size() - 1);
 			}
 
-			size_t WriteAccessor(double min, double max, fastgltf::AccessorType type, size_t length, BufferType bufType, const std::function<void*(size_t)>& getFunc)
+			size_t WriteAccessor(AccessorRange a_range, fastgltf::AccessorType type, size_t length, BufferType bufType, const std::function<void*(size_t)>& getFunc)
 			{
 				size_t unitSize = 0;
 				switch (type) {
@@ -107,7 +115,7 @@ namespace Serialization
 				}
 
 				auto bvIdx = MakeBView(bufIdx, unitSize * length);
-				auto accIdx = MakeAccessor(min, max, type, length, bvIdx);
+				auto accIdx = MakeAccessor(a_range, type, length, bvIdx);
 				bufferAccMap[bufIdx] = accIdx;
 				return accIdx;
 			}
@@ -192,8 +200,24 @@ namespace Serialization
 			ozz::animation::offline::AnimationOptimizer optimizer;
 			optimizer.setting.distance = 1.0f;
 			optimizer.setting.tolerance = toleranceLevel;
-			optimizer(*anim->data, *skeleton, tempAnim.get());
-			anim->data = std::move(tempAnim);
+			// On failure the output is left empty, so keep every key instead.
+			if (optimizer(*anim->data, *skeleton, tempAnim.get())) {
+				anim->data = std::move(tempAnim);
+			}
+		}
+
+		// An empty track means identity to ozz, and the optimizer empties tracks that are constant identity. glTF reads
+		// an empty or missing channel as the node's own TRS, which is the rest pose, so write the identity explicitly.
+		for (auto& trck : anim->data->tracks) {
+			if (trck.translations.empty()) {
+				trck.translations.push_back({ 0.0f, ozz::math::Float3::zero() });
+			}
+			if (trck.rotations.empty()) {
+				trck.rotations.push_back({ 0.0f, ozz::math::Quaternion::identity() });
+			}
+			if (trck.scales.empty()) {
+				trck.scales.push_back({ 0.0f, ozz::math::Float3::one() });
+			}
 		}
 
 		ExportUtil util;
@@ -220,16 +244,14 @@ namespace Serialization
 			auto& rotSmplr = assetAnim.samplers.emplace_back();
 			rotSmplr.interpolation = fastgltf::AnimationInterpolation::Linear;
 			rotSmplr.inputAccessor = util.WriteAccessor(
-				trck.rotations.front().time,
-				trck.rotations.back().time,
+				std::pair<double, double>{ trck.rotations.front().time, trck.rotations.back().time },
 				fastgltf::AccessorType::Scalar,
 				trck.rotations.size(),
 				BufferType::Time,
 				[&](size_t i) { return &trck.rotations[i].time; }
 			);
 			rotSmplr.outputAccessor = util.WriteAccessor(
-				0.0f,
-				0.0f,
+				std::nullopt,
 				fastgltf::AccessorType::Vec4,
 				trck.rotations.size(),
 				BufferType::Rot,
@@ -244,16 +266,14 @@ namespace Serialization
 			auto& transSmplr = assetAnim.samplers.emplace_back();
 			transSmplr.interpolation = fastgltf::AnimationInterpolation::Linear;
 			transSmplr.inputAccessor = util.WriteAccessor(
-				trck.translations.front().time,
-				trck.translations.back().time,
+				std::pair<double, double>{ trck.translations.front().time, trck.translations.back().time },
 				fastgltf::AccessorType::Scalar,
 				trck.translations.size(),
 				BufferType::Time,
 				[&](size_t i) { return &trck.translations[i].time; }
 			);
 			transSmplr.outputAccessor = util.WriteAccessor(
-				0.0f,
-				0.0f,
+				std::nullopt,
 				fastgltf::AccessorType::Vec3,
 				trck.translations.size(),
 				BufferType::Trans,
@@ -264,6 +284,28 @@ namespace Serialization
 			transChnl.nodeIndex = i;
 			transChnl.path = fastgltf::AnimationPath::Translation;
 			transChnl.samplerIndex = DedupeSampler(transSmplr);
+
+			auto& scaleSmplr = assetAnim.samplers.emplace_back();
+			scaleSmplr.interpolation = fastgltf::AnimationInterpolation::Linear;
+			scaleSmplr.inputAccessor = util.WriteAccessor(
+				std::pair<double, double>{ trck.scales.front().time, trck.scales.back().time },
+				fastgltf::AccessorType::Scalar,
+				trck.scales.size(),
+				BufferType::Time,
+				[&](size_t i) { return &trck.scales[i].time; }
+			);
+			scaleSmplr.outputAccessor = util.WriteAccessor(
+				std::nullopt,
+				fastgltf::AccessorType::Vec3,
+				trck.scales.size(),
+				BufferType::Scale,
+				[&](size_t i) { return &trck.scales[i].value; }
+			);
+
+			auto& scaleChnl = assetAnim.channels.emplace_back();
+			scaleChnl.nodeIndex = i;
+			scaleChnl.path = fastgltf::AnimationPath::Scale;
+			scaleChnl.samplerIndex = DedupeSampler(scaleSmplr);
 		}
 
 		std::vector<std::string> morphTargets = Settings::GetFaceMorphs();
@@ -313,8 +355,7 @@ namespace Serialization
 			auto& smplr = assetAnim.samplers.emplace_back();
 			smplr.interpolation = fastgltf::AnimationInterpolation::Linear;
 			smplr.inputAccessor = util.WriteAccessor(
-				0.0f,
-				anim->faceData->duration,
+				std::pair<double, double>{ 0.0, anim->faceData->duration },
 				fastgltf::AccessorType::Scalar,
 				timeSize,
 				BufferType::Time,
@@ -336,8 +377,7 @@ namespace Serialization
 			}
 
 			smplr.outputAccessor = util.WriteAccessor(
-				0.0f,
-				0.0f,
+				std::nullopt,
 				fastgltf::AccessorType::Scalar,
 				combinedWeights.size(),
 				BufferType::Morphs,
@@ -351,13 +391,45 @@ namespace Serialization
 		}
 
 		util.CombineBuffers();
+
+		struct Extras
+		{
+			const std::vector<std::string>* morphTargets;
+			const Animation::RawOzzAnimation* anim;
+		} extras{ &morphTargets, anim };
+
 		fastgltf::Exporter exp;
-		exp.setUserPointer(&morphTargets);
+		exp.setUserPointer(&extras);
 		exp.setExtrasWriteCallback([](std::size_t objectIndex, fastgltf::Category objectType, void* userPointer) -> std::optional<std::string> {
+			const auto& extras = *static_cast<Extras*>(userPointer);
+			if (objectType == fastgltf::Category::Animations) {
+				std::string result;
+				const auto writeBones = [&](std::string_view a_key, const std::vector<std::string>& a_bones) {
+					if (a_bones.empty())
+						return;
+
+					result += result.empty() ? "{" : ",";
+					result += "\"" + std::string(a_key) + "\":[";
+					for (size_t i = 0; i < a_bones.size(); i++) {
+						result += "\"" + fastgltf::escapeString(a_bones[i]) + "\"";
+						if ((i + 1) < a_bones.size()) {
+							result += ",";
+						}
+					}
+					result += "]";
+				};
+				writeBones("unmasked_bones", extras.anim->unmaskedBones);
+				writeBones("masked_bones", extras.anim->maskedBones);
+				if (result.empty())
+					return std::nullopt;
+
+				return result + "}";
+			}
+
 			if (objectType != fastgltf::Category::Meshes)
 				return std::nullopt;
 
-			auto& morphNames = *static_cast<std::vector<std::string>*>(userPointer);
+			auto& morphNames = *extras.morphTargets;
 			std::string result = R"({"targetNames":[)";
 			for (size_t i = 0; i < morphNames.size(); i++) {
 				result += "\"" + morphNames[i] + "\"";
@@ -375,5 +447,48 @@ namespace Serialization
 		}
 
 		return std::move(result.get().output);
+	}
+
+	std::expected<void, std::string> GLTFExport::ExportToFile(const std::filesystem::path& a_path, Animation::RawOzzAnimation* anim, const ozz::animation::Skeleton* skeleton, uint8_t level)
+	{
+		const auto bytes = CreateOptimizedAsset(anim, skeleton, level);
+		if (bytes.empty()) return std::unexpected("Could not encode the animation.");
+
+		std::error_code ec;
+		if (a_path.has_parent_path()) {
+			std::filesystem::create_directories(a_path.parent_path(), ec);
+			if (ec) return std::unexpected("Could not create the folder: " + ec.message());
+		}
+
+		// Write beside the target, then replace it in one step, so it's never left half-written.
+		auto temporary = a_path;
+		temporary += ".tmp";
+		{
+			// Gzip-compressed; GLTFImport reads both compressed and plain files. zstr::ofstream only takes a narrow path,
+			// so it wraps a std::ofstream, which takes the wide one.
+			std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
+			if (!file) return std::unexpected("Could not open the file for writing.");
+			bool written = true;
+			try {
+				zstr::ostream compressed(file);
+				compressed.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+				// Finishes the gzip stream. The destructor would too, but swallows errors.
+				compressed.flush();
+			} catch (const std::exception&) {
+				written = false;
+			}
+			file.close();
+			if (!written || !file) {
+				std::filesystem::remove(temporary, ec);
+				return std::unexpected("Failed while writing the file.");
+			}
+		}
+		std::filesystem::rename(temporary, a_path, ec);
+		if (ec) {
+			const auto message = ec.message();
+			std::filesystem::remove(temporary, ec);
+			return std::unexpected("Could not replace the file: " + message);
+		}
+		return {};
 	}
 }

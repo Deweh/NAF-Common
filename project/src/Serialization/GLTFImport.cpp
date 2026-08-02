@@ -13,6 +13,16 @@ template <>
 struct fastgltf::ElementTraits<ozz::math::Float3> : fastgltf::ElementTraitsBase<ozz::math::Float3, AccessorType::Vec3, float>
 {};
 
+// Column-major, as GLTF stores it.
+struct GltfMat4
+{
+	float m[16];
+};
+
+template <>
+struct fastgltf::ElementTraits<GltfMat4> : fastgltf::ElementTraitsBase<GltfMat4, AccessorType::Mat4, float>
+{};
+
 namespace Serialization
 {
 	void GLTFImport::LoadAnimation(AnimationInfo& info)
@@ -63,42 +73,127 @@ namespace Serialization
 		info.result.error = kSuccess;
 	}
 
-	std::unique_ptr<std::vector<ozz::math::Transform>> GLTFImport::CreateRawPose(const fastgltf::Asset* asset, const ozz::animation::Skeleton* skeleton)
+	std::optional<std::vector<ozz::math::Transform>> GLTFImport::CreateRestPoseFromSkins(const AssetData* assetData, const ozz::animation::Skeleton& skeleton)
 	{
-		//Create a map of GLTF node indexes -> skeleton indexes
-		std::map<std::string, size_t> skeletonMap;
-		auto skeletonJointNames = skeleton->joint_names();
-		for (size_t i = 0; i < skeletonJointNames.size(); i++) {
-			skeletonMap[skeletonJointNames[i]] = i;
-		}
+		using namespace ozz::math;
+		const auto asset = &assetData->asset;
+		const size_t numNodes = asset->nodes.size();
 
-		ozz::math::Transform identity;
-		identity.rotation = { .0f, .0f, .0f, 1.0f };
-		identity.translation = { .0f, .0f, .0f };
-		auto bindPose = std::make_unique<std::vector<ozz::math::Transform>>(skeletonMap.size(), identity);
-
-		for (const auto& n : asset->nodes) {
-			if (auto iter = skeletonMap.find(n.name.c_str()); iter != skeletonMap.end()) {
-				if (std::holds_alternative<fastgltf::TRS>(n.transform)) {
-					auto& trs = std::get<fastgltf::TRS>(n.transform);
-					auto& b = (*bindPose)[iter->second];
-					b.rotation = {
-						trs.rotation[0],
-						trs.rotation[1],
-						trs.rotation[2],
-						trs.rotation[3]
-					};
-					b.translation = {
-						trs.translation[0],
-						trs.translation[1],
-						trs.translation[2]
-					};
-					b.scale = ozz::math::Float3::one();
+		std::vector<size_t> nodeParents(numNodes, SIZE_MAX);
+		for (size_t i = 0; i < numNodes; i++) {
+			for (auto c : asset->nodes[i].children) {
+				if (c < numNodes) {
+					nodeParents[c] = i;
 				}
 			}
 		}
 
-		return bindPose;
+		const auto localMatrix = [&](size_t a_node) {
+			if (auto trs = std::get_if<fastgltf::TRS>(&asset->nodes[a_node].transform)) {
+				return Float4x4::FromAffine(
+					Float3{ trs->translation[0], trs->translation[1], trs->translation[2] },
+					Quaternion{ trs->rotation[0], trs->rotation[1], trs->rotation[2], trs->rotation[3] },
+					Float3{ trs->scale[0], trs->scale[1], trs->scale[2] });
+			}
+			return Float4x4::identity();
+		};
+
+		// Global transform from the nodes' own TRS, used for the skinned mesh nodes.
+		const auto nodeGlobal = [&](size_t a_node) {
+			Float4x4 result = localMatrix(a_node);
+			for (size_t p = nodeParents[a_node]; p != SIZE_MAX; p = nodeParents[p]) {
+				result = localMatrix(p) * result;
+			}
+			return result;
+		};
+
+		// The inverse bind matrices are relative to the skinned mesh node, so the joints' bind globals are meshGlobal * IBM^-1.
+		std::vector<std::optional<Float4x4>> globals(numNodes);
+		bool anyBound = false;
+		for (size_t skinIdx = 0; skinIdx < asset->skins.size(); skinIdx++) {
+			const auto& skin = asset->skins[skinIdx];
+			if (!skin.inverseBindMatrices.has_value() || skin.inverseBindMatrices.value() >= asset->accessors.size())
+				continue;
+
+			const auto& ibmAccessor = asset->accessors[skin.inverseBindMatrices.value()];
+			if (ibmAccessor.type != fastgltf::AccessorType::Mat4 || ibmAccessor.count != skin.joints.size())
+				continue;
+
+			Float4x4 meshGlobal = Float4x4::identity();
+			for (size_t i = 0; i < numNodes; i++) {
+				if (asset->nodes[i].skinIndex == skinIdx) {
+					meshGlobal = nodeGlobal(i);
+					break;
+				}
+			}
+
+			for (size_t i = 0; i < skin.joints.size(); i++) {
+				const size_t jointNode = skin.joints[i];
+				if (jointNode >= numNodes || globals[jointNode].has_value())
+					continue;
+
+				const auto ibm = fastgltf::getAccessorElement<GltfMat4>(*asset, ibmAccessor, i);
+				Float4x4 ibmMatrix;
+				for (size_t c = 0; c < 4; c++) {
+					ibmMatrix.cols[c] = simd_float4::LoadPtrU(&ibm.m[c * 4]);
+				}
+				globals[jointNode] = meshGlobal * Invert(ibmMatrix);
+				anyBound = true;
+			}
+		}
+
+		if (!anyBound)
+			return std::nullopt;
+
+		// Nodes outside the skins hang off their parent's global by their own TRS.
+		const std::function<const Float4x4&(size_t)> global = [&](size_t a_node) -> const Float4x4& {
+			if (!globals[a_node].has_value()) {
+				const size_t parent = nodeParents[a_node];
+				globals[a_node] = parent == SIZE_MAX ? localMatrix(a_node) : global(parent) * localMatrix(a_node);
+			}
+			return *globals[a_node];
+		};
+
+		std::map<std::string, size_t> skeletonMap;
+		auto skeletonJointNames = skeleton.joint_names();
+		for (size_t i = 0; i < skeletonJointNames.size(); i++) {
+			skeletonMap[Util::String::ToLower(skeletonJointNames[i])] = i;
+		}
+
+		const int32_t numJoints = skeleton.num_joints();
+		std::vector<size_t> jointNodes(numJoints, SIZE_MAX);
+		for (size_t i = 0; i < numNodes; i++) {
+			std::string_view nodeName = asset->nodes[i].name.c_str();
+			if (auto iter = assetData->originalNames.find(i); iter != assetData->originalNames.end()) {
+				nodeName = iter->second;
+			}
+			if (auto iter = skeletonMap.find(Util::String::ToLower(nodeName)); iter != skeletonMap.end() && jointNodes[iter->second] == SIZE_MAX) {
+				jointNodes[iter->second] = i;
+			}
+		}
+
+		// Joints the file has no node for keep the skeleton's rest pose.
+		const auto parents = skeleton.joint_parents();
+		std::vector<Transform> restPose;
+		restPose.reserve(numJoints);
+		for (int32_t i = 0; i < numJoints; i++) {
+			auto& t = restPose.emplace_back(ozz::animation::GetJointLocalRestPose(skeleton, i));
+			const size_t node = jointNodes[i];
+			if (node == SIZE_MAX)
+				continue;
+
+			// Locals are relative to the skeleton parent, falling back to the node's GLTF parent.
+			const int16_t parent = parents[i];
+			const size_t parentNode = parent != ozz::animation::Skeleton::kNoParent && jointNodes[parent] != SIZE_MAX ? jointNodes[parent] : nodeParents[node];
+			const Float4x4 local = parentNode == SIZE_MAX ? global(node) : Invert(global(parentNode)) * global(node);
+
+			Transform decomposed;
+			if (ToAffine(local, &decomposed)) {
+				t = decomposed;
+			}
+		}
+
+		return restPose;
 	}
 
 	void ParseMorphChannel(const GLTFImport::AssetData* assetData, const fastgltf::Animation* anim, const fastgltf::AnimationChannel& channel, Animation::RawOzzAnimation* rawAnim)
@@ -199,32 +294,66 @@ namespace Serialization
 		}
 	}
 
-	bool GLTFImport::RetargetAnimation(ozz::animation::offline::RawAnimation* anim, const std::vector<ozz::math::Transform>& sourceRestPose, const std::vector<ozz::math::Transform>& targetRestPose)
+	// Each source bone may sit in its rest pose with different local axes than the matching target bone (e.g. Blender
+	// re-orients bones to point at their children). Joint positions are assumed to line up at rest.
+	//
+	// The target follows the source's world-space motion: T_world(t) = S_world(t) * C, with C = S_world_rest^-1 * T_world_rest.
+	// In local space that becomes T_local(t) = C_parent^-1 * S_local(t) * C. The delta from rest, which is what the
+	// animator authored, gets conjugated into the target bone's axes instead of being applied along the source's axes.
+	// Blender's Copy Transforms constraint in Local Owner Orientation space does the same thing.
+	bool GLTFImport::RetargetAnimation(ozz::animation::offline::RawAnimation* anim, const std::vector<ozz::math::Transform>& sourceRestPose, const std::vector<ozz::math::Transform>& targetRestPose, const ozz::animation::Skeleton& skeleton)
 	{
-		if (sourceRestPose.size() != targetRestPose.size() || sourceRestPose.size() != anim->num_tracks())
+		const size_t numJoints = anim->num_tracks();
+		if (sourceRestPose.size() != numJoints || targetRestPose.size() != numJoints || static_cast<size_t>(skeleton.num_joints()) != numJoints)
 			return false;
 
 		using namespace ozz::math;
-		std::vector<Transform> diffs;
-		diffs.resize(anim->num_tracks());
+		const auto parents = skeleton.joint_parents();
 
-		for (size_t i = 0; i < anim->num_tracks(); i++) {
-			auto& diffT = diffs[i];
-			auto& targetT = targetRestPose[i];
-			auto& sourceT = sourceRestPose[i];
-			diffT.rotation = targetT.rotation * Quaternion{ -sourceT.rotation.x, -sourceT.rotation.y, -sourceT.rotation.z, sourceT.rotation.w };
-			diffT.translation = targetT.translation - sourceT.translation;
+		// ozz orders joints so that parents always come before their children.
+		std::vector<Quaternion> sourceWorld(numJoints);
+		std::vector<Quaternion> targetWorld(numJoints);
+		std::vector<Quaternion> offsets(numJoints);
+		for (size_t i = 0; i < numJoints; i++) {
+			const auto sourceLocal = NormalizeSafe(sourceRestPose[i].rotation, Quaternion::identity());
+			const auto targetLocal = NormalizeSafe(targetRestPose[i].rotation, Quaternion::identity());
+			const int16_t parent = parents[i];
+			if (parent == ozz::animation::Skeleton::kNoParent) {
+				sourceWorld[i] = sourceLocal;
+				targetWorld[i] = targetLocal;
+			} else {
+				sourceWorld[i] = sourceWorld[parent] * sourceLocal;
+				targetWorld[i] = targetWorld[parent] * targetLocal;
+			}
+			offsets[i] = Conjugate(sourceWorld[i]) * targetWorld[i];
 		}
 
-		auto diffIter = diffs.begin();
-		for (auto& track : anim->tracks) {
+		const auto safeDivide = [](float a_num, float a_den) {
+			return std::abs(a_den) > 1e-6f ? a_num / a_den : 1.0f;
+		};
+
+		for (size_t i = 0; i < numJoints; i++) {
+			auto& track = anim->tracks[i];
+			const int16_t parent = parents[i];
+			const Quaternion parentOffsetInv = parent == ozz::animation::Skeleton::kNoParent ? Quaternion::identity() : Conjugate(offsets[parent]);
+			const Quaternion& offset = offsets[i];
+			const auto& sourceRest = sourceRestPose[i];
+			const auto& targetRest = targetRestPose[i];
+
 			for (auto& rot : track.rotations) {
-				rot.value = diffIter->rotation * rot.value;
+				rot.value = Normalize(parentOffsetInv * NormalizeSafe(rot.value, Quaternion::identity()) * offset);
 			}
+			// Keep the target's bone lengths and only carry over the motion, expressed in the target parent's axes.
 			for (auto& trans : track.translations) {
-				trans.value = diffIter->translation + trans.value;
+				trans.value = targetRest.translation + TransformVector(parentOffsetInv, trans.value - sourceRest.translation);
 			}
-			diffIter++;
+			for (auto& scale : track.scales) {
+				scale.value = {
+					targetRest.scale.x * safeDivide(scale.value.x, sourceRest.scale.x),
+					targetRest.scale.y * safeDivide(scale.value.y, sourceRest.scale.y),
+					targetRest.scale.z * safeDivide(scale.value.z, sourceRest.scale.z)
+				};
+			}
 		}
 
 		return true;
@@ -248,6 +377,8 @@ namespace Serialization
 		int32_t numJoints = skeleton->data->num_joints();
 		bindPose.reserve(numJoints);
 
+		std::vector<bool> hasNode(numJoints, false);
+
 		//Save skeleton bind pose.
 		for (int32_t i = 0; i < numJoints; i++) {
 			if constexpr (IsFO4()) {
@@ -268,6 +399,7 @@ namespace Serialization
 			if (auto iter = skeletonMap.find(Util::String::ToLower(nodeName)); iter != skeletonMap.end()) {
 				skeletonIdxs.push_back(iter->second);
 				if (std::holds_alternative<fastgltf::TRS>(n.transform)) {
+					hasNode[iter->second] = true;
 					auto& trs = std::get<fastgltf::TRS>(n.transform);
 					auto& b = bindPose[iter->second];
 					b.rotation = {
@@ -295,6 +427,13 @@ namespace Serialization
 		//Create the raw animation
 		auto rawAnimResult = std::make_unique<Animation::RawOzzAnimation>();
 		rawAnimResult->data = ozz::make_unique<ozz::animation::offline::RawAnimation>();
+		const auto animIndex = static_cast<size_t>(anim - asset->animations.data());
+		if (auto bones = assetData->unmaskedBones.find(animIndex); bones != assetData->unmaskedBones.end()) {
+			rawAnimResult->unmaskedBones = bones->second;
+		}
+		if (auto bones = assetData->maskedBones.find(animIndex); bones != assetData->maskedBones.end()) {
+			rawAnimResult->maskedBones = bones->second;
+		}
 		auto& animResult = rawAnimResult->data;
 		animResult->duration = 0.001f;
 		animResult->tracks.resize(skeletonMap.size());
@@ -359,6 +498,20 @@ namespace Serialization
 			}
 		}
 
+		//If the file has a skin, its bind pose is the rest pose of the rig the keys were authored against (e.g. a Blender armature, whose bones
+		//are oriented differently), and the keys get retargeted onto the game skeleton below. Unkeyed channels are filled in the source rig's
+		//space first so they go through the same retarget. Joints the file has no node for take the source rest pose, which retargets to exactly
+		//the skeleton's rest pose.
+		const auto sourceRestPose = CreateRestPoseFromSkins(assetData, *skeleton->data);
+		const bool retarget = sourceRestPose.has_value() && animResult->tracks.size() == static_cast<size_t>(numJoints);
+		if (retarget) {
+			for (int32_t i = 0; i < numJoints; i++) {
+				if (!hasNode[i]) {
+					bindPose[i] = (*sourceRestPose)[i];
+				}
+			}
+		}
+
 		for (size_t i = 0; i < skeletonMap.size(); i++) {
 			auto& rTl = animResult->tracks[i].rotations;
 			auto& pTl = animResult->tracks[i].translations;
@@ -382,6 +535,15 @@ namespace Serialization
 				s.value = b.scale;
 				sTl.push_back(s);
 			}
+		}
+
+		if (retarget) {
+			std::vector<ozz::math::Transform> targetRestPose;
+			targetRestPose.reserve(numJoints);
+			for (int32_t i = 0; i < numJoints; i++) {
+				targetRestPose.push_back(ozz::animation::GetJointLocalRestPose(*skeleton->data, i));
+			}
+			RetargetAnimation(animResult.get(), *sourceRestPose, targetRestPose, *skeleton->data);
 		}
 
 		if (rawAnimResult->faceData != nullptr) {
@@ -425,6 +587,29 @@ namespace Serialization
 			}
 		}
 
+		// Names the skeleton doesn't have are ignored. The mask stays empty (the default) unless one changes it.
+		if (!animResult->unmaskedBones.empty() || !animResult->maskedBones.empty()) {
+			auto mask = skeleton->defaultBoneMask;
+			const auto jointNames = skeleton->data->joint_names();
+			bool changed = false;
+			const auto apply = [&](const std::vector<std::string>& a_names, bool a_written) {
+				for (const auto& name : a_names) {
+					for (size_t i = 0; i < jointNames.size() && i < mask.size(); i++) {
+						if (Util::String::CaseInsensitiveCompare(name, jointNames[i])) {
+							changed |= mask[i] != a_written;
+							mask[i] = a_written;
+							break;
+						}
+					}
+				}
+			};
+			apply(animResult->unmaskedBones, true);
+			apply(animResult->maskedBones, false);
+			if (changed) {
+				result->boneMask = std::move(mask);
+			}
+		}
+
 		return result;
 	}
 
@@ -462,7 +647,8 @@ namespace Serialization
 				fastgltf::Category::Buffers |
 				fastgltf::Category::BufferViews |
 				fastgltf::Category::Samplers |
-				fastgltf::Category::Accessors;
+				fastgltf::Category::Accessors |
+				fastgltf::Category::Skins;
 
 			auto assetData = std::make_unique<AssetData>();
 			parser.setUserPointer(assetData.get());
@@ -491,6 +677,23 @@ namespace Serialization
 					}
 
 					assetData->originalNames[objectIndex] = str.value();
+				} else if (objectType == fastgltf::Category::Animations) {
+					const auto readBones = [&](std::string_view a_key, std::map<size_t, std::vector<std::string>>& a_out) {
+						auto arr = (*extras)[a_key].get_array();
+						if (arr.error() != simdjson::error_code::SUCCESS) {
+							return;
+						}
+
+						std::string_view name;
+						auto& bones = a_out[objectIndex];
+						for (auto ele : arr) {
+							if (ele.get_string().get(name) == simdjson::error_code::SUCCESS) {
+								bones.emplace_back(name);
+							}
+						}
+					};
+					readBones("unmasked_bones", assetData->unmaskedBones);
+					readBones("masked_bones", assetData->maskedBones);
 				}
 			});
 

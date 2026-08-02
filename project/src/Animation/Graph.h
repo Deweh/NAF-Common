@@ -83,6 +83,7 @@ namespace Animation
 			std::vector<std::pair<RE::BSFixedString, RE::BSFixedString>> pendingEvents;
 			std::vector<ozz::math::Float4x4> lastOutput;
 			std::vector<bool> boneMask;
+			std::vector<bool> appliedMask;  // The mask last used to push output, which a generator may have replaced.
 			PoseCache::Handle restPose;
 			PoseCache::Handle snapshotPose;
 			PoseCache::Handle blendedPose;

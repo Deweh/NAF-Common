@@ -50,11 +50,16 @@ namespace Serialization
 			fastgltf::Asset asset;
 			std::map<size_t, std::vector<std::string>> morphTargets;
 			std::map<size_t, std::string> originalNames;
+			// Animation index -> its "unmasked_bones" and "masked_bones" extras.
+			std::map<size_t, std::vector<std::string>> unmaskedBones;
+			std::map<size_t, std::vector<std::string>> maskedBones;
 		};
 
 		static void LoadAnimation(AnimationInfo& info);
-		static std::unique_ptr<std::vector<ozz::math::Transform>> CreateRawPose(const fastgltf::Asset* asset, const ozz::animation::Skeleton* skeleton);
-		static bool RetargetAnimation(ozz::animation::offline::RawAnimation* anim, const std::vector<ozz::math::Transform>& sourceRestPose, const std::vector<ozz::math::Transform>& targetRestPose);
+		// The rest pose of the rig the file was authored with, read from its skins' inverse bind matrices, as local transforms in skeleton joint order.
+		// Joints the file has no node for take the skeleton's rest pose. Returns nothing if no skeleton joint is in a skin.
+		static std::optional<std::vector<ozz::math::Transform>> CreateRestPoseFromSkins(const AssetData* assetData, const ozz::animation::Skeleton& skeleton);
+		static bool RetargetAnimation(ozz::animation::offline::RawAnimation* anim, const std::vector<ozz::math::Transform>& sourceRestPose, const std::vector<ozz::math::Transform>& targetRestPose, const ozz::animation::Skeleton& skeleton);
 		static std::unique_ptr<Animation::RawOzzAnimation> CreateRawAnimation(const AssetData* assetData, const fastgltf::Animation* anim, const Animation::OzzSkeleton* skeleton);
 		static std::unique_ptr<Animation::OzzAnimation> CreateRuntimeAnimation(const AssetData* assetData, const fastgltf::Animation* anim, const Animation::OzzSkeleton* skeleton);
 		static std::unique_ptr<AssetData> LoadGLTF(const std::filesystem::path& fileName);

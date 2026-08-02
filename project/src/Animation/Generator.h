@@ -54,6 +54,9 @@ namespace Animation
 		virtual bool RequiresRestPose();
 		virtual bool RequiresPhysicsSystem();
 		virtual size_t GetSizeBytes();
+		// Replaces the graph's bone mask while this generator is attached, or null to keep it. Read on the animation
+		// thread, after Generate. Must have one entry per joint.
+		virtual const std::vector<bool>* GetBoneMask();
 
 		virtual ~Generator() = default;
 	};
@@ -103,6 +106,7 @@ namespace Animation
 		virtual void Synchronize(Generator* a_other, float a_correctionDelta);
 		virtual GenType GetType();
 		virtual size_t GetSizeBytes() override;
+		virtual const std::vector<bool>* GetBoneMask() override;
 
 		virtual ~LinearClipGenerator() = default;
 	};

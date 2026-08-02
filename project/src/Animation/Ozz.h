@@ -14,6 +14,10 @@ namespace Animation
 	{
 		ozz::unique_ptr<ozz::animation::offline::RawAnimation> data = nullptr;
 		std::unique_ptr<RawOzzFaceAnimation> faceData = nullptr;
+		// Overrides of the skeleton's default bone mask, by name: bones it leaves out that this animation writes anyway,
+		// and bones it includes that this animation leaves to the game.
+		std::vector<std::string> unmaskedBones;
+		std::vector<std::string> maskedBones;
 	};
 
 	struct OzzFaceAnimation
@@ -34,8 +38,10 @@ namespace Animation
 
 		ozz::unique_ptr<ozz::animation::Animation> data = nullptr;
 		std::unique_ptr<OzzFaceAnimation> faceData = nullptr;
+		std::vector<bool> boneMask;  // Per joint, or empty for the skeleton's default.
 
 		virtual size_t GetSizeBytes() override;
+		virtual const std::vector<bool>* GetBoneMask() override;
 		virtual void SampleBoneAnimation(float a_time, const ozz::span<ozz::math::SoaTransform>& a_transformsOut, IBasicAnimationContext* a_context) override;
 		virtual void SampleFaceAnimation(float a_time, const std::span<float>& a_morphsOut) override;
 		virtual void SampleEventTrack(float a_time, float a_timeStep, IAnimEventHandler* a_eventHandler) override;

@@ -22,5 +22,7 @@ namespace Animation
 		virtual bool HasFaceAnimation() = 0;
 		virtual float GetDuration() = 0;
 		virtual std::unique_ptr<IBasicAnimationContext> CreateContext() = 0;
+		// Replaces the skeleton's default bone mask while this animation plays, or null to keep it. One entry per joint.
+		virtual const std::vector<bool>* GetBoneMask();
 	};
 }

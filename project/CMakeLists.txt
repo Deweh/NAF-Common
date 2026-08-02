@@ -67,8 +67,8 @@ find_package(simdjson CONFIG REQUIRED)
 add_subdirectory("../extern/ozz-animation/" ozz-animation)
 add_subdirectory("../extern/fastgltf/" fastgltf)
 
-# glob source files
-file(GLOB_RECURSE SRC_FILES src/*.cpp)
+# glob source files and reconfigure when new source files are added
+file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS src/*.cpp)
 
 # cmake target
 # runtime

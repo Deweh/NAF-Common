@@ -7,4 +7,9 @@ namespace Animation
 	{
 		return std::make_unique<LinearClipGenerator>(std::static_pointer_cast<IBasicAnimation>(shared_from_this()));
 	}
+
+	const std::vector<bool>* IBasicAnimation::GetBoneMask()
+	{
+		return nullptr;
+	}
 }

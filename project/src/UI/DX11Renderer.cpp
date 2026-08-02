@@ -19,9 +19,11 @@ namespace UI
 	{
 		using Present_t = HRESULT(__stdcall*)(IDXGISwapChain*, UINT, UINT);
 		using ResizeBuffers_t = HRESULT(__stdcall*)(IDXGISwapChain*, UINT, UINT, UINT, DXGI_FORMAT, UINT);
+		using ClipCursor_t = BOOL(WINAPI*)(const RECT*);
 
 		Present_t       g_originalPresent{ nullptr };
 		ResizeBuffers_t g_originalResizeBuffers{ nullptr };
+		ClipCursor_t    g_originalClipCursor{ nullptr };
 
 		constexpr std::uint32_t kPresentVTableIndex = 8;
 		constexpr std::uint32_t kResizeBuffersVTableIndex = 13;
@@ -116,6 +118,198 @@ namespace UI
 			};
 		}
 
+		// Geometry nearer to the camera plane than this is clipped away instead of projected.
+		constexpr float kNearClipW = 0.1f;
+
+		// Diamond faces, back half first so the front half draws over it, and its edges. Indices into
+		// ScreenSpaceDiamond::vertices: start, right, front, left, back, end.
+		constexpr std::array<std::array<uint8_t, 3>, 8> kDiamondFaces{ { { 0, 1, 4 }, { 0, 3, 4 }, { 5, 1, 4 }, { 5, 3, 4 },
+			{ 0, 1, 2 }, { 0, 3, 2 }, { 5, 1, 2 }, { 5, 3, 2 } } };
+		constexpr std::array<std::array<uint8_t, 2>, 12> kDiamondEdges{ { { 0, 3 }, { 0, 1 }, { 0, 2 }, { 0, 4 }, { 5, 3 }, { 5, 1 },
+			{ 5, 2 }, { 5, 4 }, { 3, 2 }, { 2, 1 }, { 1, 4 }, { 4, 3 } } };
+
+		// Laid out like NiCamera::worldToCam: row r dotted with (x, y, z, 1) is clip component r (x, y, z, w).
+		struct WorldToClip
+		{
+			float m[4][4];
+		};
+
+#if defined TARGET_GAME_F4
+		// The view-projection the renderer drew a_camera's view with this frame. The NiCamera may have been
+		// updated for the next frame by the time Present runs, so its worldToCam can't be relied on to match the image.
+		std::optional<WorldToClip> GetRenderedWorldToClip(const RE::NiCamera& a_camera)
+		{
+			// The renderer state's address is only known for the pre-NG runtime.
+			if (!REL::Module::IsF4()) return std::nullopt;
+			static REL::Relocation<RE::BSGraphics::State*> state{ REL::ID(600795) };
+
+			const RE::BSGraphics::CameraStateData* data = nullptr;
+			for (const auto& entry : state->cameraDataCache) {
+				if (entry.referenceCamera == &a_camera) {
+					data = &entry;
+					break;
+				}
+			}
+			if (!data && state->cameraState.referenceCamera == &a_camera) data = &state->cameraState;
+			if (!data) return std::nullopt;
+
+			// Unjittered, so the overlay doesn't shimmer with TAA. The renderer works relative to posAdjust.
+			float source[4][4];
+			for (size_t row = 0; row < 4; ++row) _mm_storeu_ps(source[row], data->camViewData.viewProjUnjittered[row]);
+			const auto& adjust = data->posAdjust;
+
+			// The matrix's orientation isn't documented, so take the reading whose depth (w) row matches the
+			// NiCamera's: it points along the camera's forward axis and puts a point ahead of the camera at that
+			// distance. Neither matching means the data isn't what's expected, and the caller falls back.
+			const RE::NiPoint3 forward{ a_camera.world.rotate[0][0], a_camera.world.rotate[0][1], a_camera.world.rotate[0][2] };
+			constexpr float kProbeDistance = 100.0f;
+			const RE::NiPoint3 probe{
+				a_camera.world.translate.x + forward.x * kProbeDistance,
+				a_camera.world.translate.y + forward.y * kProbeDistance,
+				a_camera.world.translate.z + forward.z * kProbeDistance
+			};
+			for (const bool rowVector : { true, false }) {
+				WorldToClip result;
+				for (size_t r = 0; r < 4; ++r) {
+					for (size_t c = 0; c < 4; ++c) result.m[r][c] = rowVector ? source[c][r] : source[r][c];
+					result.m[r][3] -= result.m[r][0] * adjust.x + result.m[r][1] * adjust.y + result.m[r][2] * adjust.z;
+				}
+				const auto& w = result.m[3];
+				const float axisLength = std::sqrt(w[0] * w[0] + w[1] * w[1] + w[2] * w[2]);
+				if (axisLength <= 0.000001f) continue;
+				const float alignment = (w[0] * forward.x + w[1] * forward.y + w[2] * forward.z) / axisLength;
+				// Loose enough for a frame of fast camera movement between the render and now.
+				const float depth = w[0] * probe.x + w[1] * probe.y + w[2] * probe.z + w[3];
+				if (alignment > 0.9f && std::abs(depth - kProbeDistance) < 2000.0f) return result;
+			}
+			return std::nullopt;
+		}
+#endif
+
+		WorldToClip ComputeWorldToClip(const RE::NiCamera& a_camera)
+		{
+#if defined TARGET_GAME_F4
+			static std::optional<bool> usingRendered;
+			const auto rendered = GetRenderedWorldToClip(a_camera);
+			if (usingRendered != rendered.has_value()) {
+				usingRendered = rendered.has_value();
+				logger::info("Viewport overlay projection: {}", rendered ? "renderer camera state" : "NiCamera::worldToCam (fallback)");
+			}
+			if (rendered) return *rendered;
+#endif
+			WorldToClip result;
+			std::memcpy(result.m, a_camera.worldToCam, sizeof(result.m));
+			return result;
+		}
+
+		// The camera doesn't move within a frame, and the overlay projects hundreds of points per frame, so the
+		// lookup (camera state search, transpose and probe) runs once per ImGui frame and camera.
+		WorldToClip GetWorldToClip(const RE::NiCamera& a_camera)
+		{
+			struct Cache
+			{
+				int frame{ -1 };
+				const RE::NiCamera* camera{ nullptr };
+				WorldToClip value;
+			};
+			static Cache cache;
+			const int frame = ImGui::GetFrameCount();
+			if (cache.frame != frame || cache.camera != &a_camera) cache = { frame, &a_camera, ComputeWorldToClip(a_camera) };
+			return cache.value;
+		}
+
+		ClipVertex ToClip(const WorldToClip& a_worldToClip, const RE::NiPoint3& a_world)
+		{
+			const auto& m = a_worldToClip.m;
+			return {
+				(a_world.x * m[0][0]) + (a_world.y * m[0][1]) + (a_world.z * m[0][2]) + m[0][3],
+				(a_world.x * m[1][0]) + (a_world.y * m[1][1]) + (a_world.z * m[1][2]) + m[1][3],
+				(a_world.x * m[3][0]) + (a_world.y * m[3][1]) + (a_world.z * m[3][2]) + m[3][3]
+			};
+		}
+
+		// Only valid for vertices in front of the near plane.
+		ImVec2 ToScreen(const ClipVertex& a_vertex)
+		{
+			const ImGuiIO& io = ImGui::GetIO();
+			const float x = ((a_vertex.x / a_vertex.w) + 1.0f) * 0.5f;
+			const float y = (1.0f - (a_vertex.y / a_vertex.w)) * 0.5f;
+			return ImVec2(x * io.DisplaySize.x, y * io.DisplaySize.y);
+		}
+
+		ClipVertex IntersectNearPlane(const ClipVertex& a_inside, const ClipVertex& a_outside)
+		{
+			const float t = (kNearClipW - a_inside.w) / (a_outside.w - a_inside.w);
+			return { a_inside.x + ((a_outside.x - a_inside.x) * t), a_inside.y + ((a_outside.y - a_inside.y) * t), kNearClipW };
+		}
+
+		// Sutherland-Hodgman against the near plane, then projected. One plane cuts a triangle into at most 4 vertices.
+		size_t ClipTriangle(const ClipVertex& a_a, const ClipVertex& a_b, const ClipVertex& a_c, std::array<ImVec2, 4>& a_out)
+		{
+			const std::array<ClipVertex, 3> input{ a_a, a_b, a_c };
+			size_t count = 0;
+			for (size_t i = 0; i < input.size(); ++i) {
+				const auto& current = input[i];
+				const auto& next = input[(i + 1) % input.size()];
+				const bool currentInside = current.w >= kNearClipW;
+				const bool nextInside = next.w >= kNearClipW;
+				if (currentInside) a_out[count++] = ToScreen(current);
+				if (currentInside != nextInside) a_out[count++] = ToScreen(currentInside ? IntersectNearPlane(current, next) : IntersectNearPlane(next, current));
+			}
+			return count;
+		}
+
+		bool ClipSegment(const ClipVertex& a_start, const ClipVertex& a_end, ImVec2& a_outStart, ImVec2& a_outEnd)
+		{
+			const bool startInside = a_start.w >= kNearClipW;
+			const bool endInside = a_end.w >= kNearClipW;
+			if (!startInside && !endInside) return false;
+			a_outStart = ToScreen(startInside ? a_start : IntersectNearPlane(a_end, a_start));
+			a_outEnd = ToScreen(endInside ? a_end : IntersectNearPlane(a_start, a_end));
+			return true;
+		}
+
+		bool PointInConvexPolygon(const ImVec2& a_point, std::span<const ImVec2> a_polygon)
+		{
+			for (size_t i = 1; i + 1 < a_polygon.size(); ++i) {
+				if (PointInTriangle(a_point, a_polygon[0], a_polygon[i], a_polygon[i + 1])) return true;
+			}
+			return false;
+		}
+
+		BOOL WINAPI ClipCursorHook(const RECT* a_rect)
+		{
+			auto* renderer = DX11Renderer::GetSingleton();
+			if (!renderer->IsMouseReleased()) {
+				return g_originalClipCursor(a_rect);
+			}
+
+			return g_originalClipCursor(nullptr);
+
+			HWND hwnd = renderer->m_hwnd;
+			if (!hwnd) {
+				if (const auto gameRenderer = RE::BSGraphics::RendererData::GetSingleton(); gameRenderer) {
+					hwnd = reinterpret_cast<HWND>(gameRenderer->renderWindow[0].hwnd);
+				}
+			}
+
+			RECT clientRect{};
+			POINT topLeft{};
+			POINT bottomRight{};
+			if (hwnd && GetClientRect(hwnd, &clientRect)) {
+				topLeft = POINT{ clientRect.left, clientRect.top };
+				bottomRight = POINT{ clientRect.right, clientRect.bottom };
+				if (ClientToScreen(hwnd, &topLeft) && ClientToScreen(hwnd, &bottomRight)) {
+					const RECT windowClip{ topLeft.x, topLeft.y, bottomRight.x, bottomRight.y };
+					return g_originalClipCursor(&windowClip);
+				}
+			}
+
+			// If the window is temporarily unavailable, removing the clip is safer than
+			// allowing the game to restore its smaller center-screen rectangle.
+			return g_originalClipCursor(nullptr);
+		}
+
 		LRESULT CALLBACK WndProc(HWND a_hwnd, UINT a_msg, WPARAM a_wparam, LPARAM a_lparam)
 		{
 			auto* renderer = DX11Renderer::GetSingleton();
@@ -155,6 +349,19 @@ namespace UI
 
 	void DX11Renderer::Install()
 	{
+		if (!g_originalClipCursor) {
+#if defined TARGET_GAME_F4
+			g_originalClipCursor = reinterpret_cast<ClipCursor_t>(REL::PatchIAT(ClipCursorHook, "USER32.dll", "ClipCursor"));
+#elif defined TARGET_GAME_SF
+			g_originalClipCursor = reinterpret_cast<ClipCursor_t>(SFSE::PatchIAT(ClipCursorHook, "USER32.dll", "ClipCursor"));
+#endif
+			if (g_originalClipCursor) {
+				logger::info("Installed ClipCursor IAT hook.");
+			} else {
+				logger::warn("Failed to install ClipCursor IAT hook.");
+			}
+		}
+
 		if (g_originalPresent && g_originalResizeBuffers) {
 			return;
 		}
@@ -324,6 +531,26 @@ namespace UI
 		m_drawCallback = a_callback;
 	}
 
+	void DX11Renderer::SetMouseReleased(bool a_release)
+	{
+		m_mouseReleased.store(a_release, std::memory_order_release);
+
+		if (auto* controlMap = RE::ControlMap::GetSingleton(); controlMap) {
+			controlMap->ignoreKeyboardMouse = a_release;
+		}
+
+		ShowCursor(a_release ? TRUE : FALSE);
+
+		if (a_release && g_originalClipCursor) {
+			ClipCursorHook(nullptr);
+		}
+	}
+
+	bool DX11Renderer::IsMouseReleased() const
+	{
+		return m_mouseReleased.load(std::memory_order_acquire);
+	}
+
 	bool DX11Renderer::WorldToScreen(const RE::NiPoint3& a_world, ImVec2& a_out) const
 	{
 		float depth = 0.0f;
@@ -337,11 +564,43 @@ namespace UI
 			return false;
 		}
 
-		const auto screen = WorldToScreenNormalized(*camera, a_world);
-		a_depth = screen.z;
+		a_depth = WorldToScreenNormalized(*camera, a_world).z;
+		const auto clip = ToClip(GetWorldToClip(*camera), a_world);
+		if (clip.w < kNearClipW) return false;  // Behind the camera; projecting would mirror it on screen.
+		a_out = ToScreen(clip);
+		return true;
+	}
 
-		ImGuiIO& io = ImGui::GetIO();
-		a_out = ImVec2(screen.x * io.DisplaySize.x, screen.y * io.DisplaySize.y);
+	bool DX11Renderer::GetGizmoCameraMatrices(ozz::math::Float4x4& a_view, ozz::math::Float4x4& a_projection, bool& a_orthographic) const
+	{
+		const auto camera = RE::Main::WorldRootCamera();
+		if (!camera) return false;
+
+		const auto gameCameraWorld = *reinterpret_cast<const ozz::math::Float4x4*>(std::addressof(camera->world));
+
+		// Fallout camera space is forward/right/up, while ImGuizmo expects
+		// right/up/forward. Present the same camera with the axes reordered so
+		// ImGuizmo's screen-size calculation uses the actual camera-right axis.
+		ozz::math::Float4x4 cameraWorld;
+		cameraWorld.cols[0] = gameCameraWorld.cols[1];
+		cameraWorld.cols[1] = gameCameraWorld.cols[2];
+		cameraWorld.cols[2] = gameCameraWorld.cols[0];
+		cameraWorld.cols[3] = gameCameraWorld.cols[3];
+		ozz::math::SimdInt4 invertible;
+		a_view = ozz::math::Invert(cameraWorld, &invertible);
+		if (!ozz::math::AreAllTrue1(invertible)) return false;
+
+		const auto source = GetWorldToClip(*camera);
+		ozz::math::Float4x4 worldToClip;
+		for (size_t column = 0; column < 4; ++column) {
+			float values[4];
+			for (size_t row = 0; row < 4; ++row) values[row] = source.m[row][column];
+			worldToClip.cols[column] = ozz::math::simd_float4::LoadPtrU(values);
+		}
+		// The world-to-clip transform is complete on its own. Factor out the reordered view to obtain its matching
+		// projection; together they reproduce it exactly, even if the camera has moved since the render.
+		a_projection = worldToClip * cameraWorld;
+		a_orthographic = camera->viewFrustum.ortho;
 		return true;
 	}
 
@@ -379,11 +638,6 @@ namespace UI
 			(a_start.z + a_end.z) * 0.5f
 		};
 
-		float centerDepth = 0.0f;
-		if (!WorldToScreen(center, a_outDiamond.center, centerDepth)) {
-			return false;
-		}
-
         const float c = std::cos(a_rollRadians);
         const float s = std::sin(a_rollRadians);
 
@@ -407,27 +661,28 @@ namespace UI
 		const RE::NiPoint3 front = AddScaled(center, normal, a_halfWidth);
 		const RE::NiPoint3 back = AddScaled(center, normal, -a_halfWidth);
 
-		float depthSamples[6]{};
-		if (!WorldToScreen(a_start, a_outDiamond.vertices[0], depthSamples[0]) ||
-		    !WorldToScreen(right, a_outDiamond.vertices[1], depthSamples[1]) ||
-		    !WorldToScreen(front, a_outDiamond.vertices[2], depthSamples[2]) ||
-		    !WorldToScreen(left, a_outDiamond.vertices[3], depthSamples[3]) ||
-		    !WorldToScreen(back, a_outDiamond.vertices[4], depthSamples[4]) ||
-		    !WorldToScreen(a_end, a_outDiamond.vertices[5], depthSamples[5])) {
-			return false;
+		const auto worldToClip = GetWorldToClip(*camera);
+		const RE::NiPoint3 points[6]{ a_start, right, front, left, back, a_end };
+		for (size_t i = 0; i < std::size(points); ++i) {
+			a_outDiamond.vertices[i] = ToClip(worldToClip, points[i]);
+			a_outDiamond.valid |= a_outDiamond.vertices[i].w >= kNearClipW;
 		}
-
-		a_outDiamond.depth = centerDepth;
+		a_outDiamond.depth = WorldToScreenNormalized(*camera, center).z;
 		a_outDiamond.halfWidth = a_halfWidth;
-		a_outDiamond.valid = true;
-		return true;
+		return a_outDiamond.valid;
 	}
 
 	void DX11Renderer::DrawWorldLine(const RE::NiPoint3& a_start, const RE::NiPoint3& a_end, ImU32 a_color, float a_thickness) const
 	{
+		const auto camera = RE::Main::WorldRootCamera();
+		if (!camera) {
+			return;
+		}
+
 		ImVec2 start;
 		ImVec2 end;
-		if (WorldToScreen(a_start, start) && WorldToScreen(a_end, end)) {
+		const auto worldToClip = GetWorldToClip(*camera);
+		if (ClipSegment(ToClip(worldToClip, a_start), ToClip(worldToClip, a_end), start, end)) {
 			ImGui::GetBackgroundDrawList()->AddLine(start, end, a_color, a_thickness);
 		}
 	}
@@ -451,34 +706,27 @@ namespace UI
 
     void DX11Renderer::DrawWorldDiamond(const ScreenSpaceDiamond& diamond, ImU32 a_color, float a_thickness) const
 	{
+		if (!diamond.valid) {
+			return;
+		}
+
 		auto* drawList = ImGui::GetBackgroundDrawList();
 		const auto shadedColor = ImGui::ColorConvertU32ToFloat4(a_color);
 		const ImU32 backFaceColor = ImGui::ColorConvertFloat4ToU32(ImVec4(shadedColor.x * 0.35f, shadedColor.y * 0.35f, shadedColor.z * 0.35f, shadedColor.w * 0.35f));
 		const ImU32 frontFaceColor = ImGui::ColorConvertFloat4ToU32(ImVec4(shadedColor.x * 0.75f, shadedColor.y * 0.75f, shadedColor.z * 0.75f, shadedColor.w * 0.18f));
 
-		// Draw far half first so the nearer half appears on top in screen-space.
-		drawList->AddTriangleFilled(diamond.vertices[0], diamond.vertices[1], diamond.vertices[4], backFaceColor);
-		drawList->AddTriangleFilled(diamond.vertices[0], diamond.vertices[3], diamond.vertices[4], backFaceColor);
-		drawList->AddTriangleFilled(diamond.vertices[5], diamond.vertices[1], diamond.vertices[4], backFaceColor);
-		drawList->AddTriangleFilled(diamond.vertices[5], diamond.vertices[3], diamond.vertices[4], backFaceColor);
-
-		drawList->AddTriangleFilled(diamond.vertices[0], diamond.vertices[1], diamond.vertices[2], frontFaceColor);
-		drawList->AddTriangleFilled(diamond.vertices[0], diamond.vertices[3], diamond.vertices[2], frontFaceColor);
-		drawList->AddTriangleFilled(diamond.vertices[5], diamond.vertices[1], diamond.vertices[2], frontFaceColor);
-		drawList->AddTriangleFilled(diamond.vertices[5], diamond.vertices[3], diamond.vertices[2], frontFaceColor);
-
-		drawList->AddLine(diamond.vertices[0], diamond.vertices[3], a_color, a_thickness);
-		drawList->AddLine(diamond.vertices[0], diamond.vertices[1], a_color, a_thickness);
-		drawList->AddLine(diamond.vertices[0], diamond.vertices[2], a_color, a_thickness);
-		drawList->AddLine(diamond.vertices[0], diamond.vertices[4], a_color, a_thickness);
-		drawList->AddLine(diamond.vertices[5], diamond.vertices[3], a_color, a_thickness);
-		drawList->AddLine(diamond.vertices[5], diamond.vertices[1], a_color, a_thickness);
-		drawList->AddLine(diamond.vertices[5], diamond.vertices[2], a_color, a_thickness);
-		drawList->AddLine(diamond.vertices[5], diamond.vertices[4], a_color, a_thickness);
-		drawList->AddLine(diamond.vertices[3], diamond.vertices[2], a_color, a_thickness);
-		drawList->AddLine(diamond.vertices[2], diamond.vertices[1], a_color, a_thickness);
-		drawList->AddLine(diamond.vertices[1], diamond.vertices[4], a_color, a_thickness);
-		drawList->AddLine(diamond.vertices[4], diamond.vertices[3], a_color, a_thickness);
+		// Faces and edges are clipped at the near plane, so a diamond reaching behind the camera is cut off cleanly.
+		std::array<ImVec2, 4> polygon;
+		for (size_t face = 0; face < kDiamondFaces.size(); ++face) {
+			const auto& indices = kDiamondFaces[face];
+			const size_t count = ClipTriangle(diamond.vertices[indices[0]], diamond.vertices[indices[1]], diamond.vertices[indices[2]], polygon);
+			if (count >= 3) drawList->AddConvexPolyFilled(polygon.data(), static_cast<int>(count), face < 4 ? backFaceColor : frontFaceColor);
+		}
+		for (const auto& edge : kDiamondEdges) {
+			ImVec2 start;
+			ImVec2 end;
+			if (ClipSegment(diamond.vertices[edge[0]], diamond.vertices[edge[1]], start, end)) drawList->AddLine(start, end, a_color, a_thickness);
+		}
 	}
 
 	bool DX11Renderer::IsScreenPointInsideDiamond(const ImVec2& a_screenPoint, const ScreenSpaceDiamond& a_diamond) const
@@ -487,10 +735,26 @@ namespace UI
 			return false;
 		}
 
-		return PointInTriangle(a_screenPoint, a_diamond.vertices[0], a_diamond.vertices[1], a_diamond.vertices[2]) ||
-		       PointInTriangle(a_screenPoint, a_diamond.vertices[0], a_diamond.vertices[2], a_diamond.vertices[3]) ||
-		       PointInTriangle(a_screenPoint, a_diamond.vertices[5], a_diamond.vertices[1], a_diamond.vertices[2]) ||
-		       PointInTriangle(a_screenPoint, a_diamond.vertices[5], a_diamond.vertices[2], a_diamond.vertices[3]);
+		// With every vertex in front of the camera, the outline lies within the projected vertices' bounds, so most
+		// diamonds are rejected without clipping their faces.
+		if (std::ranges::all_of(a_diamond.vertices, [](const ClipVertex& a_vertex) { return a_vertex.w >= kNearClipW; })) {
+			ImVec2 min{ FLT_MAX, FLT_MAX };
+			ImVec2 max{ -FLT_MAX, -FLT_MAX };
+			for (const auto& vertex : a_diamond.vertices) {
+				const auto screen = ToScreen(vertex);
+				min = { (std::min)(min.x, screen.x), (std::min)(min.y, screen.y) };
+				max = { (std::max)(max.x, screen.x), (std::max)(max.y, screen.y) };
+			}
+			if (a_screenPoint.x < min.x || a_screenPoint.x > max.x || a_screenPoint.y < min.y || a_screenPoint.y > max.y) return false;
+		}
+
+		// Any face covers the point; together they make up the diamond's whole visible outline.
+		std::array<ImVec2, 4> polygon;
+		for (const auto& indices : kDiamondFaces) {
+			const size_t count = ClipTriangle(a_diamond.vertices[indices[0]], a_diamond.vertices[indices[1]], a_diamond.vertices[indices[2]], polygon);
+			if (count >= 3 && PointInConvexPolygon(a_screenPoint, std::span{ polygon.data(), count })) return true;
+		}
+		return false;
 	}
 
 	bool DX11Renderer::IsScreenPointInsideDiamond(const ImVec2& a_screenPoint, const RE::NiPoint3& a_center, float a_size, float a_rollRadians) const
