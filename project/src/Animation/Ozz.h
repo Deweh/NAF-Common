@@ -57,6 +57,11 @@ namespace Animation
 		std::vector<bool> defaultBoneMask;
 		std::vector<bool> controlledByGameMask;
 		std::string name;
+		// A hash of the bones the game animates (names and parents), which comes from the game's animation skeleton: the
+		// .rig on Starfield, the Havok skeleton on Fallout 4. Skeletons of different races with the same hash animate the
+		// same bones, so content made for one fits the other. Computed at runtime and never saved, since installed mods can
+		// extend a game skeleton. Empty when no bone is game-controlled.
+		std::optional<std::uint64_t> gameSkeletonHash;
 #ifdef TARGET_GAME_F4
 		std::vector<int32_t> ozzToHavokIdxs;
 #endif

@@ -1,4 +1,5 @@
 #include "UI/Studio/Dialogs/Popups.h"
+#include "Util/Game.h"
 
 #include "UI/Studio/StudioSession.h"
 
@@ -105,7 +106,7 @@ namespace UI::Studio
 			if (!modal(popup)) continue;
 			if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
 			const bool entered = ImGui::InputScalar("Form ID", ImGuiDataType_U32, &m_formIdInput, nullptr, nullptr, "%08X", ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue);
-			const auto actor = RE::TESForm::GetFormByID<RE::Actor>(m_formIdInput);
+			const auto actor = Util::Game::LookupForm<RE::Actor>(m_formIdInput);
 			const char* actorName = actor ? actor->GetDisplayFullName() : nullptr;
 			ImGui::TextDisabled("%s", actor ? (actorName && actorName[0] ? actorName : "Actor") : "No actor with that form ID.");
 			if ((buttons(popup == Popup::kBindActor ? "Bind" : "Add", actor != nullptr) || entered) && actor) {

@@ -2,7 +2,7 @@
 
 #include "Animation/Studio/ProjectEx.h"
 #include "Serialization/StudioProjectImport.h"
-#include "UI/DX11Renderer.h"
+#include "UI/Renderer.h"
 #include "UI/Studio/StudioCamera.h"
 
 namespace UI
@@ -36,7 +36,7 @@ namespace UI
 		[[nodiscard]] bool HasOpenProject() const;
 		[[nodiscard]] const std::string& GetProjectName() const;
 		[[nodiscard]] ProjectEx* GetProject();
-		void Draw(DX11Renderer* a_renderer);
+		void Draw(Renderer* a_renderer);
 
 	private:
 		StudioMenuEx();
@@ -65,7 +65,7 @@ namespace UI
 
 		void DrawBindingDialog();
 		void FinishOpen();
-		void DrawScenePlacement(DX11Renderer* a_renderer);
+		void DrawScenePlacement(Renderer* a_renderer);
 
 		std::unique_ptr<Studio::StudioSession> m_session;
 		std::optional<PendingOpen> m_pendingOpen;

@@ -159,7 +159,30 @@ namespace
 
 #define DLLEXPORT __declspec(dllexport)
 
+#if defined TARGET_GAME_F4
 namespace logger = xSE::log;
+#elif defined TARGET_GAME_SF
+// libxse/commonlibsf moved logging and stl::enumeration into commonlib-shared's REX namespace.
+namespace logger
+{
+	template <class... T>
+	using trace = REX::TRACE<T...>;
+	template <class... T>
+	using debug = REX::DEBUG<T...>;
+	template <class... T>
+	using info = REX::INFO<T...>;
+	template <class... T>
+	using warn = REX::WARN<T...>;
+	template <class... T>
+	using critical = REX::CRITICAL<T...>;
+}
+
+namespace SFSE::stl
+{
+	template <class E, class U = std::underlying_type_t<E>>
+	using enumeration = REX::TEnumSet<E, U>;
+}
+#endif
 using namespace std::literals;
 
 //Other dependencies

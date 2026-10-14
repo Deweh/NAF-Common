@@ -69,7 +69,7 @@ namespace Animation::Studio
 	std::expected<void, std::string> CheckActorCompatibility(std::string_view a_skeletonId, RE::SEX a_gender, RE::Actor* a_actor)
 	{
 		if (!a_actor) return std::unexpected("No actor was supplied.");
-		if (!a_skeletonId.empty() && !Util::String::CaseInsensitiveCompare(a_skeletonId, GetActorSkeletonId(a_actor))) {
+		if (!a_skeletonId.empty() && !Settings::AreSkeletonsCompatible(std::string{ a_skeletonId }, GetActorSkeletonId(a_actor))) {
 			return std::unexpected("The actor uses a different skeleton.");
 		}
 		if (const auto npc = a_actor->GetNPC(); npc && a_gender != RE::SEX::kNone && npc->GetSex() != a_gender) {

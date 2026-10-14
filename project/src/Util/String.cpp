@@ -1,4 +1,5 @@
 #include "String.h"
+#include "REX/FModule.h"
 
 namespace Util
 {
@@ -19,7 +20,7 @@ namespace Util
 #if defined TARGET_GAME_F4
 			std::filesystem::path p = REL::Module::get().filePath();
 #elif defined TARGET_GAME_SF
-			std::filesystem::path p = REX::W32::GetProcPath(nullptr);
+			std::filesystem::path p = REX::FModule::GetExecutingModule().GetFileName();
 #endif
 			BasePath = p.parent_path();
 		}

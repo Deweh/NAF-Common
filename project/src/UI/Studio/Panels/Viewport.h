@@ -22,7 +22,7 @@ namespace UI::Studio
 		};
 
 		explicit Viewport(StudioSession& a_session);
-		void Draw(DX11Renderer* a_renderer);
+		void Draw(Renderer* a_renderer);
 
 		// What the gizmo would move: bones not driven by IK, locators, and actors (their placement). Stops at a_limit.
 		[[nodiscard]] std::vector<GizmoTarget> CollectGizmoTargets(size_t a_limit = SIZE_MAX);
@@ -34,7 +34,7 @@ namespace UI::Studio
 		ViewOptions view;
 
 	private:
-		void DrawGizmo(DX11Renderer* a_renderer);
+		void DrawGizmo(Renderer* a_renderer);
 
 		StudioSession& m_session;
 		ProjectEx* m_project;

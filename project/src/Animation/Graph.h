@@ -73,6 +73,22 @@ namespace Animation
 			kGeneratorToGenerator = 4
 		};
 
+#ifdef TARGET_GAME_SF
+		// The model rig the output is written to, and each joint's slot in it.
+		struct RigBinding
+		{
+			RE::BGSModelNode::Rig* rig = nullptr;  // Referenced, so a rebuilt rig can't come back at the same address.
+			std::vector<uint16_t> slots;
+			bool anySlot = false;
+
+			RigBinding() = default;
+			RigBinding(const RigBinding&) = delete;
+			RigBinding& operator=(const RigBinding&) = delete;
+			~RigBinding() { Reset(); }
+			void Reset();
+		};
+#endif
+
 		struct LOADED_DATA
 		{
 			TransitionData transition;
@@ -90,6 +106,10 @@ namespace Animation
 			std::shared_ptr<Face::MorphData> faceMorphData = nullptr;
 #ifdef TARGET_GAME_SF
 			std::unique_ptr<EyeTrackingData> eyeTrackData = nullptr;
+			// Per joint, or nullptr if the model doesn't have it. Referenced, since a node can be detached (e.g. one from an
+			// unequipped item) while transforms still points at it.
+			std::vector<RE::NiPointer<RE::NiAVObject>> nodes;
+			RigBinding rigBinding;
 #endif
 			std::unique_ptr<Physics::ModelSpaceSystem> physSystem = nullptr;
 			NiSkeletonRootNode* rootNode = nullptr;
@@ -162,6 +182,9 @@ namespace Animation
 		void UpdatePostGenJobs(float a_deltaTime, const std::span<ozz::math::SoaTransform>& a_output);
 		void PushAnimationOutput(float a_deltaTime, const std::span<ozz::math::SoaTransform>& a_output);
 		void PushRootOutput(bool a_visible);
+#ifdef TARGET_GAME_SF
+		RE::NiTransform* BindRig();
+#endif
 		void SnapshotPose();
 		void UpdateFaceAnimData();
 		void SetFaceMorphsControlled(bool a_controlled, float a_transitionTime);

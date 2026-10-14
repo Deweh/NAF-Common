@@ -1,4 +1,5 @@
 #include "UI/StudioMenuEx.h"
+#include "Util/Game.h"
 
 #include "UI/Studio/StudioSession.h"
 #include "Util/String.h"
@@ -38,9 +39,9 @@ namespace UI
 		// Suggest each slot's previous actor when it's loaded and still fits. The user confirms before anything binds.
 		for (const auto& slot : pending.file.GetActorSlots()) {
 			auto& actor = pending.actors.emplace_back();
-			const auto hint = slot.bindingHint != 0 ? RE::TESForm::GetFormByID<RE::Actor>(slot.bindingHint) : nullptr;
+			const auto hint = slot.bindingHint != 0 ? Util::Game::LookupForm<RE::Actor>(slot.bindingHint) : nullptr;
 			const bool taken = std::ranges::any_of(pending.actors, [&](const auto& a_other) { return a_other.get() == hint; });
-			if (hint && hint->Get3D() && !taken && ProjectEx::CheckActorCompatibility(slot.skeletonId, slot.gender, hint)) actor.reset(hint);
+			if (hint && Util::Game::Get3D(hint) && !taken && ProjectEx::CheckActorCompatibility(slot.skeletonId, slot.gender, hint)) actor.reset(hint);
 		}
 		m_pendingOpen = std::move(pending);
 		// Nothing to bind: open straight away.
@@ -87,7 +88,7 @@ namespace UI
 		m_camera.SetEnabled(true);
 	}
 
-	void StudioMenuEx::Draw(DX11Renderer* a_renderer)
+	void StudioMenuEx::Draw(Renderer* a_renderer)
 	{
 		if (m_pendingOpen) {
 			DrawBindingDialog();

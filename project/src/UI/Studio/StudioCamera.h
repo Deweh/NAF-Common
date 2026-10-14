@@ -1,6 +1,6 @@
 #pragma once
 
-#include "UI/DX11Renderer.h"
+#include "UI/Renderer.h"
 
 namespace UI::Studio
 {
@@ -23,6 +23,7 @@ namespace UI::Studio
 	private:
 		bool m_enabled{ false };
 		bool m_activatedFreeCamera{ false };  // Only restore the camera state the studio changed.
+		bool m_cameraWasEnabled{ true };      // SF: the camera's enabled flag before the studio turned the free camera on, as `tfc` keeps it.
 		bool m_mouseLooking{ false };
 		POINT m_mouseLockPosition{};
 		float m_moveSpeed{ 1.0f };

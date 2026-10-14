@@ -1,4 +1,5 @@
 #include "UI/Studio/StudioWidgets.h"
+#include "Util/Game.h"
 
 #include "Animation/Studio/StudioMath.h"
 #include "Util/String.h"
@@ -178,7 +179,7 @@ namespace UI::Studio
 		return PathToUtf8(!relative.empty() && *relative.begin() != ".." ? relative : a_path);
 	}
 
-	void DrawSceneCenter(DX11Renderer* a_renderer, const ProjectEx::ScenePlacement& a_center)
+	void DrawSceneCenter(Renderer* a_renderer, const ProjectEx::ScenePlacement& a_center)
 	{
 		using Animation::Studio::GetTranslation;
 		using Animation::Studio::MakeTranslation;
@@ -194,7 +195,7 @@ namespace UI::Studio
 
 	RE::Actor* GetConsoleSelectedActor()
 	{
-		const auto reference = RE::Console::GetPickRef().get();
+		const auto reference = Util::Game::GetConsoleSelectedRef();
 		return reference ? reference->As<RE::Actor>() : nullptr;
 	}
 
@@ -204,9 +205,14 @@ namespace UI::Studio
 		const auto player = RE::PlayerCharacter::GetSingleton();
 		if (player) found.emplace_back(0.0f, player);
 		if (const auto processLists = RE::ProcessLists::GetSingleton()) {
-			for (const auto& handle : processLists->highActorHandles) {
+#if defined TARGET_GAME_F4
+			const auto& highActorHandles = processLists->highActorHandles;
+#elif defined TARGET_GAME_SF
+			const auto& highActorHandles = RE::GetHighActorHandles(processLists);
+#endif
+			for (const auto& handle : highActorHandles) {
 				const auto actor = handle.get();
-				if (!actor || !actor->Get3D()) continue;
+				if (!actor || actor.get() == player || !Util::Game::Get3D(actor.get())) continue;
 				found.emplace_back(player ? actor->GetPosition().GetDistance(player->GetPosition()) : 0.0f, actor.get());
 			}
 		}

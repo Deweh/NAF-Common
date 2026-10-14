@@ -116,7 +116,7 @@ namespace UI::Studio
 		void ValidateSelection();
 		void HandleKeybinds();
 		// The editing UI: every window and popup. The caller sets up the dockspace first.
-		void Draw(DX11Renderer* a_renderer);
+		void Draw(Renderer* a_renderer);
 		void SetStatus(std::string a_status);
 		[[nodiscard]] std::optional<std::string_view> GetStatus() const;  // While it's recent enough to show.
 		bool SaveProject();

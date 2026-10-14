@@ -1,4 +1,5 @@
 #include "UI/Studio/StudioSession.h"
+#include "Util/Game.h"
 
 #include "UI/Studio/StudioCamera.h"
 #include "Animation/Studio/StudioMath.h"
@@ -292,7 +293,7 @@ namespace UI::Studio
 		// Binding a slot: offer the actor it was last bound to, if that form still exists.
 		if (a_target != ProjectEx::kNoObject) {
 			const auto hint = m_project->GetBindingHint(a_target);
-			const auto previous = hint != 0 ? RE::TESForm::GetFormByID<RE::Actor>(hint) : nullptr;
+			const auto previous = hint != 0 ? Util::Game::LookupForm<RE::Actor>(hint) : nullptr;
 			if (previous && previous != m_project->GetBoundActor(a_target)) {
 				if (ImGui::MenuItem(std::format("Previous: {}", GetActorLabel(previous)).c_str())) a_onPick(previous);
 			}

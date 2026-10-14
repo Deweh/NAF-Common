@@ -1,24 +1,16 @@
 #include "Settings.h"
-#include "simdjson.h"
 #include "Util/String.h"
 #include "Animation/Transform.h"
 #include "Impl.h"
 
 namespace Settings
 {
-	const std::filesystem::path skeletonsDir = Util::String::GetDataPath() / "Skeletons";
 	std::mutex lock;
 
 	std::shared_ptr<Animation::OzzSkeleton>& GetDefaultSkeleton()
 	{
 		static std::shared_ptr<Animation::OzzSkeleton> defaultSkeleton;
 		return defaultSkeleton;
-	}
-
-	std::unordered_map<std::string, std::shared_ptr<Animation::OzzSkeleton>>& GetSkeletonMap()
-	{
-		static std::unordered_map<std::string, std::shared_ptr<Animation::OzzSkeleton>> skeletons;
-		return skeletons;
 	}
 
 	void InitDefaultSkeleton()
@@ -34,44 +26,86 @@ namespace Settings
 		InitDefaultSkeleton();
 	}
 
-	const std::filesystem::path& GetSkeletonsPath()
-	{
-		return skeletonsDir;
-	}
-
 	namespace detail
 	{
-		std::shared_ptr<Animation::OzzSkeleton> BuildSkeleton(const std::string_view a_name, RE::Actor* a_actor)
+		// Skeletons are identified by the EditorID of the race they're built from.
+		using SkeletonMap = std::map<std::string, std::shared_ptr<Animation::OzzSkeleton>, Util::String::CaseInsensitiveLess>;
+
+		SkeletonMap& GetSkeletonMap()
 		{
-			SkeletonDescriptor skele;
-			GetImplFunctions().GetSkeletonBonesForActor(skele, a_actor);
-			return skele.BuildRuntime(a_name);
+			static SkeletonMap skeletons;
+			return skeletons;
 		}
 
-		void SpotBuildSkeletonIfNeeded(const std::string_view a_id, RE::Actor* a_actor)
+		// Races whose skeleton couldn't be built without an actor, so lookups by ID don't retry every time.
+		std::set<std::string, Util::String::CaseInsensitiveLess>& GetUnbuildableRaces()
 		{
+			static std::set<std::string, Util::String::CaseInsensitiveLess> races;
+			return races;
+		}
+
+		// The race whose animation skeleton an actor uses.
+		RE::TESRace* GetSkeletonRace(RE::Actor* a_actor)
+		{
+#if defined TARGET_GAME_F4
+			return a_actor->race;
+#elif defined TARGET_GAME_SF
+			return RE::GetAnimationRace(a_actor);
+#endif
+		}
+
+		RE::TESRace* LookupRace(const std::string& a_editorId)
+		{
+			if (a_editorId.empty())
+				return nullptr;
+#if defined TARGET_GAME_F4
+			return RE::TESForm::GetFormByEditorID<RE::TESRace>(RE::BSFixedString(a_editorId));
+#elif defined TARGET_GAME_SF
+			return RE::TESForm::LookupByEditorID<RE::TESRace>(RE::BSFixedString(a_editorId));
+#endif
+		}
+
+		std::string GetRaceId(RE::TESRace* a_race)
+		{
+			const char* id = a_race ? a_race->formEditorID.c_str() : nullptr;
+			return id ? id : "";
+		}
+
+		// Returns the race's skeleton, building it if it hasn't been yet. Null if it can't be built.
+		std::shared_ptr<Animation::OzzSkeleton> FindOrBuildSkeleton(RE::TESRace* a_race, RE::Actor* a_actor)
+		{
+			const std::string id = GetRaceId(a_race);
+			if (id.empty())
+				return nullptr;
+
 			std::unique_lock l{ lock };
 			auto& skeletons = GetSkeletonMap();
-			if (auto iter = skeletons.find(a_id.data()); iter != skeletons.end()) {
-				return;
+			if (auto iter = skeletons.find(id); iter != skeletons.end())
+				return iter->second;
+			if (!a_actor && GetUnbuildableRaces().contains(id))
+				return nullptr;
+
+			SkeletonDescriptor skele;
+			std::shared_ptr<Animation::OzzSkeleton> result;
+			if (GetImplFunctions().BuildSkeleton(skele, a_race, a_actor))
+				result = skele.BuildRuntime(id);
+
+			if (!result) {
+				if (!a_actor)
+					GetUnbuildableRaces().insert(id);
+				return nullptr;
 			}
 
-			auto result = BuildSkeleton(a_id, a_actor);
-			if (result) {
-				skeletons.emplace(a_id, result);
-			}
+			skeletons.emplace(id, result);
+			return result;
 		}
 	}
 
 	std::shared_ptr<const Animation::OzzSkeleton> GetSkeleton(const std::string& a_id)
 	{
-		std::unique_lock l{ lock };
-		auto& skeletons = GetSkeletonMap();
-		if (auto iter = skeletons.find(a_id); iter != skeletons.end()) {
-			return iter->second;
-		} else {
-			return GetDefaultSkeleton();
-		}
+		if (auto result = detail::FindOrBuildSkeleton(detail::LookupRace(a_id), nullptr))
+			return result;
+		return GetDefaultSkeleton();
 	}
 
 	std::shared_ptr<const Animation::OzzSkeleton> GetSkeleton(RE::Actor* a_actor)
@@ -79,18 +113,37 @@ namespace Settings
 		if (!a_actor)
 			return GetDefaultSkeleton();
 
-		return GetSkeleton(GetSkeletonIdentifier(a_actor).c_str());
+		if (auto result = detail::FindOrBuildSkeleton(detail::GetSkeletonRace(a_actor), a_actor))
+			return result;
+		return GetDefaultSkeleton();
 	}
 
 	RE::BSFixedString GetSkeletonIdentifier(RE::Actor* a_actor)
 	{
-	#if defined TARGET_GAME_F4
-		auto& identifier = a_actor->race->behaviorGraphProjectName[0];
-	#elif defined TARGET_GAME_SF
-		auto& identifier = a_actor->race->formEditorID;
-	#endif
-		detail::SpotBuildSkeletonIfNeeded(identifier.c_str(), a_actor);
-		return identifier;
+		if (!a_actor)
+			return {};
+
+		const auto race = detail::GetSkeletonRace(a_actor);
+		detail::FindOrBuildSkeleton(race, a_actor);
+		return RE::BSFixedString(detail::GetRaceId(race));
+	}
+
+	bool AreSkeletonsCompatible(const std::string& a_savedId, const std::string& a_currentId)
+	{
+		if (Util::String::CaseInsensitiveCompare(a_savedId, a_currentId))
+			return true;
+
+#if defined TARGET_GAME_F4
+		// Before skeletons were identified by race, Fallout 4 ones were identified by the race's behavior graph project.
+		if (const auto race = detail::LookupRace(a_currentId); race && Util::String::CaseInsensitiveCompare(a_savedId, race->behaviorGraphProjectName[0].c_str()))
+			return true;
+#endif
+
+		const auto saved = GetSkeleton(a_savedId);
+		const auto current = GetSkeleton(a_currentId);
+		if (IsDefaultSkeleton(saved) || IsDefaultSkeleton(current))
+			return false;
+		return saved->gameSkeletonHash.has_value() && saved->gameSkeletonHash == current->gameSkeletonHash;
 	}
 
 	bool IsDefaultSkeleton(std::shared_ptr<const Animation::OzzSkeleton> a_skeleton)
@@ -110,7 +163,8 @@ namespace Settings
 
 	PerformanceMorph* GetMorphNames()
 	{
-		REL::Relocation<PerformanceMorph*> ptr(REL::ID(872948));
+		// 1.16: 105 entries, filled by a static initializer from "browLowererL" to "BSX".
+		REL::Relocation<PerformanceMorph*> ptr(REL::ID(930506));
 		return ptr.get();
 	}
 #endif

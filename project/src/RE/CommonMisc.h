@@ -237,31 +237,7 @@ namespace RE
 		BSFixedString morphNames[FACE_MORPHS_SIZE];
 	};
 
-	struct BSAnimationUpdateData
-	{
-		NiPoint3A rootLocation1;
-		NiPoint3A rootAngle1;
-		NiPoint3A rootLocation2;
-		NiPoint3A rootAngle2;
-		float unk01;
-		float unk02;
-		IPostAnimationChannelUpdateFunctor* postUpdateFunctor;
-		float unk05;
-		float unk06;
-		float unk07;
-		float unk08;
-		float timeDelta;
-		float unk09;
-		uint16_t unk11;
-		bool forceUpdate;
-		bool modelCulled;
-		bool unk13;
-		bool unkFlag;
-		bool unk15;
-		float unk16;
-	};
-	static_assert(offsetof(BSAnimationUpdateData, timeDelta) == 0x60);
-	static_assert(offsetof(BSAnimationUpdateData, modelCulled) == 0x6B);
+	// BSAnimationUpdateData, BGSModelNode and NiNode come from CommonLibSF.
 
 	template <class T>
 	struct BSArray
@@ -271,104 +247,146 @@ namespace RE
 		T* data;
 	};
 
-	class BGSModelNode
+	// CommonLibSF leaves this part of BGSModelNode unmapped.
+	// TODO: offset is from the pre-1.15 game; verify against the current binary.
+	inline BSArray<BSFaceGenNiNode*>& GetFaceGenNodes(BGSModelNode* a_modelNode)
 	{
-	public:
-		virtual ~BGSModelNode() = default;
-		virtual void* Refresh(NiNode* rootNode, NiUpdateData*);
-		struct UpdateData
-		{
-			NiTransform t1;
-			NiTransform t2;
-			NiTransform t3;
-			NiPoint4 point;
-		};
-		virtual bool Update(UpdateData* data, NiUpdateData*, NiTransform*);
-		uint32_t refcount;
-		uint32_t pad0C;
+		return *reinterpret_cast<BSArray<BSFaceGenNiNode*>*>(reinterpret_cast<std::uintptr_t>(a_modelNode) + 0x48);
+	}
 
-		struct Unk10Struct
-		{
-			void* unk00_unk88[0x88 >> 3];
-			bool needsUpdate;
-		};
-		Unk10Struct* unk10;
-
-		struct NodeEntry
-		{
-			uint16_t index;
-			uint16_t unk02;
-			uint16_t unk04;
-			uint16_t unk06;
-			NiNode* node;
-		};
-
-		BSArray<NodeEntry> nodes;         //18
-		BSArray<BSGeometry*> geometries;  //28
-		void* unk38;
-		void* unk40;
-		BSArray<BSFaceGenNiNode*> facegenNodes;  //48
-		BSArray<NiNode*> otherNodes;             //58
-		void* unk68;
-		void* bhkNPModelNodeComponent;
-		void* unk78;
-		void* unk80;
-		void* unk88;
-	};
-	static_assert(offsetof(BGSModelNode, nodes) == 0x18);
-
-	template <class T>
-	class NiTArray
+	// A model's rig keeps its own copy of each node's local transform (Rig::local, one NiTransform per slot) and builds the
+	// world transforms from it every frame (BSModelNode vfunc 0x2, ID 147429). NiAVObject::local is only read when the rig is
+	// built, so the game copies a node's new local into its slot when it moves one (ID 68200, slot lookup ID 147430).
+	// Rig::rebuild makes the next update tear the rig down and build a new one from the scene graph (ID 147424). The game sets
+	// it when a node is attached or detached under the model.
+	namespace ModelRig
 	{
-	public:
-		virtual ~NiTArray() = default;
-		T* entries;
-		uint16_t m_arrayBufLen;    // 10 - max elements storable in m_data
-		uint16_t m_emptyRunStart;  // 12 - index of beginning of empty slot run
-		uint16_t m_size;           // 14 - number of filled slots
-		uint16_t m_growSize;       // 16 - number of slots to grow m_data by
-	};
+		using Rig = BGSModelNode::Rig;
 
-	class NiNode : public NiAVObject
-	{
-	public:
-		virtual ~NiNode() = default;
-		virtual void* AttachChild(NiAVObject* child, bool firstAvailable);
-		virtual void* InsertChildAt(uint32_t idx, NiAVObject* child);
-		virtual void* DetachChild(NiAVObject* child);
-		virtual void* DetachChildOut(NiAVObject* child, NiAVObject** outObj);  //RE::NiPointer<NiAVObject>&
-		virtual void* DetachChildAt(uint32_t idx);
-		virtual void* DetachChildAtOut(uint32_t idx, NiAVObject** outObj);  //RE::NiPointer<NiAVObject>&
-		virtual void* SetAt(uint32_t idx, NiAVObject* child);
-		virtual void* SetAtOut(uint32_t idx, NiAVObject* child, NiAVObject** outObj);  //RE::NiPointer<NiAVObject>&
-		virtual void* Unk92();
-		virtual void* Unk93();
-		virtual void* Unk94();
+		inline constexpr std::uint16_t kInvalidSlot = 0x3FF;
 
-		NiTArray<NiNode*> children;  //NiTObjectArray<NiPointer<NiAVObject>> //130
-		void* unk148;
-	};
-
-	class BGSFadeNode : public NiNode
-	{
-	public:
-		virtual ~BGSFadeNode() = default;
-
-		struct UnkEntry
+		// Entry of the rig's node name -> slot hash map at Rig+0x48, which holds every node in the model.
+		struct SlotMapEntry
 		{
-			std::byte unk00[32];
-			NiBound worldBound;
-			NiAVObject* node;
-			void* unk01;
+			const void*   name;   // 00 - BSFixedString handle
+			std::uint64_t value;  // 08 - low 10 bits: slot
+			std::uint32_t next;   // 10 - 0xFFFFFFFF: empty
+			std::uint32_t unk14;  // 14
 		};
+		static_assert(sizeof(SlotMapEntry) == 0x18);
 
-		void* unk150;
-		void* unk158;
-		void* unk160;
-		void* unk168;
-		BSArray<UnkEntry> geometries;
-		BGSModelNode* bgsModelNode;
+		template <class F>
+		void ForEachSlot(Rig* a_rig, F&& a_func)
+		{
+			const auto base = reinterpret_cast<std::uintptr_t>(a_rig);
+			const auto entries = *reinterpret_cast<SlotMapEntry**>(base + 0x58);
+			const auto capacity = *reinterpret_cast<std::uint64_t*>(base + 0x60);
+			if (!entries)
+				return;
+			for (std::uint64_t i = 0; i < capacity; i++) {
+				if (entries[i].next != 0xFFFFFFFF && entries[i].name)
+					a_func(entries[i].name, static_cast<std::uint16_t>(entries[i].value & kInvalidSlot));
+			}
+		}
+
+		// The handle the slot map is keyed by.
+		inline const void* GetNameHandle(const NiAVObject* a_node)
+		{
+			static_assert(sizeof(BSFixedString) == sizeof(void*));
+			return *reinterpret_cast<const void* const*>(&a_node->name);
+		}
+
+		// Rig::Buffer is { refCount, size (+0x8), capacity (+0xC), data (+0x10) }.
+		inline std::uint32_t GetSize(const Rig::Buffer* a_buffer)
+		{
+			return *reinterpret_cast<const std::uint32_t*>(reinterpret_cast<std::uintptr_t>(a_buffer) + 0x8);
+		}
+
+		inline void AddRef(Rig* a_rig)
+		{
+			std::atomic_ref(a_rig->refCount).fetch_add(1);
+		}
+
+		// Only calls into the game to free the rig when this is the last reference.
+		inline void Release(Rig* a_rig)
+		{
+			std::atomic_ref refCount(a_rig->refCount);
+			for (auto count = refCount.load(); count > 1;) {
+				if (refCount.compare_exchange_weak(count, count - 1))
+					return;
+			}
+			REL::Relocation<void(Rig*)> func{ REL::ID(68279) };
+			func(a_rig);
+		}
+	}
+
+	// CommonLibSF's ID::Main::WorldRoot is still 0 for 1.16, and looking up 0 shows an error box (hidden behind the game,
+	// which then looks frozen). Built by 0x14083e9a0 ("World"): its cameraRoot (+0x78) and camera (+0x80) match SceneGraph.
+	inline SceneGraph* GetWorldRoot()
+	{
+		static REL::Relocation<SceneGraph**> worldRoot{ REL::ID(936470) };
+		return *worldRoot;
+	}
+
+	// CommonLibSF's ProcessLists::highActorHandles (+0x58) is 8 bytes early for 1.16. The constructor (0x141a88ca0) builds the
+	// four actor handle arrays at +0x60, +0x70, +0x80 and +0x90, and the game iterates the high process actors from +0x60
+	// (e.g. 0x140d134b0).
+	inline BSTArray<BSPointerHandle<Actor>>& GetHighActorHandles(ProcessLists* a_processLists)
+	{
+		return *reinterpret_cast<BSTArray<BSPointerHandle<Actor>>*>(reinterpret_cast<std::uintptr_t>(a_processLists) + 0x60);
+	}
+
+	// The race an actor's animation graph is made from: TESObjectREFR vfunc 0x580 (Actor's is 0x1418eea70). A race
+	// override extra (type 0xB7) first, then the actor's race, then its base NPC's. Its animation graph component, and so
+	// its .rig, is picked from this race when the actor's graph manager is made (Actor vfunc 0x570, 0x1418ee8e0).
+	inline TESRace* GetAnimationRace(Actor* a_actor)
+	{
+		using func_t = TESRace* (*)(Actor*);
+		return reinterpret_cast<func_t>((*reinterpret_cast<void***>(a_actor))[0x580 / 8])(a_actor);
+	}
+
+	// What the SetPos (opcode 0x1007) and SetAngle (0x1009) console commands call (handlers 0x140c23830, 0x140c24260). Off the
+	// main thread a request is queued; on it, a position request (0x1418c9b90) sets the reference's position, its character
+	// controller's (vfunc 0x240) and its 3D's local translate.
+	struct TransformsManager
+	{
+		static TransformsManager* GetSingleton()
+		{
+			static REL::Relocation<TransformsManager**> singleton{ REL::ID(883606) };
+			return *singleton;
+		}
+
+		// a_axis is 'X', 'Y' or 'Z'. Angles are in degrees.
+		void RequestTransformUpdate(std::uint32_t a_opcode, TESObjectREFR* a_refr, char a_axis, double a_value)
+		{
+			using func_t = decltype(&TransformsManager::RequestTransformUpdate);
+			static REL::Relocation<func_t> func{ REL::ID(99963) };
+			func(this, a_opcode, a_refr, a_axis, a_value);
+		}
+
+		void RequestPositionUpdate(TESObjectREFR* a_refr, const NiPoint3& a_position)
+		{
+			RequestTransformUpdate(0x1007, a_refr, 'X', a_position.x);
+			RequestTransformUpdate(0x1007, a_refr, 'Y', a_position.y);
+			RequestTransformUpdate(0x1007, a_refr, 'Z', a_position.z);
+		}
+
+		void RequestRotationUpdate(TESObjectREFR* a_refr, const NiPoint3& a_rotation)
+		{
+			RequestTransformUpdate(0x1009, a_refr, 'X', a_rotation.x * Util::RADIAN_TO_DEGREE);
+			RequestTransformUpdate(0x1009, a_refr, 'Y', a_rotation.y * Util::RADIAN_TO_DEGREE);
+			RequestTransformUpdate(0x1009, a_refr, 'Z', a_rotation.z * Util::RADIAN_TO_DEGREE);
+		}
+
+		void RequestPosRotUpdate(TESObjectREFR* a_refr, const NiPoint3& a_position, const NiPoint3& a_rotation)
+		{
+			RequestPositionUpdate(a_refr, a_position);
+			RequestRotationUpdate(a_refr, a_rotation);
+		}
 	};
+
+	// Starfield's fade node is BSFadeNode; CommonLibSF maps it for the current game.
+	using BGSFadeNode = BSFadeNode;
 
 	class BSGeometry : public NiAVObject
 	{
@@ -415,52 +433,6 @@ namespace RE
 		void* unk10;
 		void* unk18;
 		BGSFadeNode* node;
-	};
-
-	struct TransformsManager
-	{
-		static TransformsManager* GetSingleton()
-		{
-			REL::Relocation<TransformsManager**> singleton(REL::ID(881086));
-			return *singleton;
-		}
-
-		void RequestTransformUpdate(uint32_t a_flags, RE::TESObjectREFR* a_refr, char a_axis, double a_value)
-		{
-			using func_t = decltype(&TransformsManager::RequestTransformUpdate);
-			REL::Relocation<func_t> func{ REL::ID(149852) };
-			func(this, a_flags, a_refr, a_axis, a_value);
-		}
-
-		void RequestPositionUpdate(RE::TESObjectREFR* a_ref, const RE::NiPoint3& a_pos)
-		{
-			using func_t = decltype(&TransformsManager::RequestTransformUpdate);
-			static REL::Relocation<func_t> func{ REL::ID(149852) };
-			func(this, 0x1007, a_ref, 'X', a_pos.x);
-			func(this, 0x1007, a_ref, 'Y', a_pos.y);
-			func(this, 0x1007, a_ref, 'Z', a_pos.z);
-		}
-
-		void RequestRotationUpdate(RE::TESObjectREFR* a_ref, const RE::NiPoint3& a_rot)
-		{
-			using func_t = decltype(&TransformsManager::RequestTransformUpdate);
-			REL::Relocation<func_t> func{ REL::ID(149852) };
-			func(this, 0x1009, a_ref, 'X', a_rot.x * Util::RADIAN_TO_DEGREE);
-			func(this, 0x1009, a_ref, 'Y', a_rot.y * Util::RADIAN_TO_DEGREE);
-			func(this, 0x1009, a_ref, 'Z', a_rot.z * Util::RADIAN_TO_DEGREE);
-		}
-
-		void RequestPosRotUpdate(RE::TESObjectREFR* a_ref, const RE::NiPoint3& a_pos, const RE::NiPoint3& a_rot)
-		{
-			using func_t = decltype(&TransformsManager::RequestTransformUpdate);
-			REL::Relocation<func_t> func{ REL::ID(149852) };
-			func(this, 0x1007, a_ref, 'X', a_pos.x);
-			func(this, 0x1007, a_ref, 'Y', a_pos.y);
-			func(this, 0x1007, a_ref, 'Z', a_pos.z);
-			func(this, 0x1009, a_ref, 'X', a_rot.x * Util::RADIAN_TO_DEGREE);
-			func(this, 0x1009, a_ref, 'Y', a_rot.y * Util::RADIAN_TO_DEGREE);
-			func(this, 0x1009, a_ref, 'Z', a_rot.z * Util::RADIAN_TO_DEGREE);
-		}
 	};
 
 	class hkVector4f
@@ -575,36 +547,90 @@ namespace RE
 
 	namespace ModelDB
 	{
+		// BSResource2 entry for BSModelDB. Refcounted; vfunc 1 releases it.
 		struct Entry
 		{
-			void* unk00;
-			void* unk08;
-			void* unk10;
-			void* unk18;
-			BGSFadeNode* node;
+			virtual ~Entry() = default;
+			virtual void Release();  // 01
+
+			uint64_t unk08;
+			uint32_t unk10;
+			uint32_t state;  // 14: bits 0x70000000 hold the load state
+			uint64_t unk18;
+			NiAVObject* root;  // 20
+
+			bool IsLoaded() const
+			{
+				const uint32_t s = state & 0x70000000;
+				return s == 0x30000000 || s == 0x40000000;
+			}
 		};
 
-		inline Entry* GetEntry(const char* filename)
+		struct DemandArgs
 		{
-			uint64_t flag = 0x3;
-			struct UnkOut
-			{
-				uint32_t unk00 = 0;
-				uint32_t unk04 = 0;
-				uint64_t unk08 = 0;
-				uint64_t unk10 = 0;
-			};
-			UnkOut out;
-			out.unk00 = flag & 0xFFFFFFu;
-			const bool isBound = true;
-			out.unk00 |= ((16 * (isBound & 1)) | 0x2D) << 24;
-			out.unk04 = 0xFEu;
+			uint32_t unk00 = 3;    // from 0x140583230: 3 for NPC_, 2 for most placeable objects, 1 otherwise
+			uint8_t flags = 0x3D;  // 0x2D | (isBoundObject << 4)
+			uint8_t unk05 = 0;     // bit 0 cleared by every caller found
+		};
+
+		struct Handle
+		{
 			Entry* entry = nullptr;
-			REL::Relocation<int(const char*, Entry**, UnkOut&)> GetModelDBEntry(REL::ID(183072));
-			GetModelDBEntry(filename, &entry, out);
-			REL::Relocation<uint64_t(UnkOut&)> DecRef(REL::ID(36741));
-			DecRef(out);
-			return entry;
+
+			Handle() = default;
+			Handle(const Handle&) = delete;
+			Handle& operator=(const Handle&) = delete;
+			Handle(Handle&& a_other) noexcept : entry(std::exchange(a_other.entry, nullptr)) {}
+			~Handle()
+			{
+				if (entry)
+					entry->Release();
+			}
+
+			NiAVObject* get() const { return entry && entry->IsLoaded() ? entry->root : nullptr; }
+		};
+
+		// BSModelDB::Demand(path, handle, args): blocking load of a model, path relative to "meshes\".
+		// This is what the reference 3D loader (0x140a71710) uses for an actor's skeleton.
+		inline Handle Demand(const char* a_path)
+		{
+			Handle result;
+			if (!a_path || !*a_path)
+				return result;
+
+			DemandArgs args;
+			REL::Relocation<int (*)(const char*, Entry**, DemandArgs*)> func{ REL::ID(127172) };  // 0x142429820
+			func(a_path, &result.entry, &args);  // 0 on success; Handle::get() checks the entry's state either way
+			return result;
+		}
+	}
+
+	// PlayerCamera's free camera, driven the way the `tfc` console command (0x1409fa6a0) drives it.
+	namespace FreeCamera
+	{
+		inline constexpr std::uint32_t kStateIndex = CameraStates::kFreeWalk;  // What `tfc` with no argument uses.
+		inline constexpr std::uint32_t kOff = CameraStates::kTotal;             // Passing this to ToggleFreeCameraMode turns it off.
+
+		// FreeWalkCameraState. Its update (vfunc 0xC) adds look and move input to these, then sets the camera root's
+		// local transform from them, so writing them moves the camera at the game's next camera update.
+		struct State
+		{
+			std::byte pad00[0x70];
+			NiPoint3 translation;  // 70: vfuncs 0xE / 0x10 get and set it
+			float pitch;           // 7C: radians, positive looks down. The game wraps it into [0, 2pi).
+			float yaw;             // 80: radians, clockwise from +Y. Also wrapped into [0, 2pi).
+		};
+
+		// Set by ToggleFreeCameraMode while the free camera is on.
+		inline bool IsActive(PlayerCamera* a_camera) { return *reinterpret_cast<bool*>(reinterpret_cast<std::uintptr_t>(a_camera) + 0x2E5); }
+		// While set, `tfc` does nothing, and ToggleFreeCameraMode won't switch to a free camera state.
+		inline bool IsBlocked(PlayerCamera* a_camera) { return *reinterpret_cast<bool*>(reinterpret_cast<std::uintptr_t>(a_camera) + 0x2DD); }
+
+		inline State* GetState(PlayerCamera* a_camera)
+		{
+			if (!a_camera || !IsActive(a_camera) || !a_camera->QCameraEquals(static_cast<CameraState>(kStateIndex)))
+				return nullptr;
+			return static_cast<State*>(a_camera->currentState);
 		}
 	}
 
@@ -655,15 +681,11 @@ namespace RE
 			std::span<EyeData> data;
 		};
 
-		inline EyeNodes GetEyeNodes()
+		// TODO: the eye-target lock (old ID 858265) and node array (old ID 858268, not in the 1.16 Address Library) moved in
+		// 1.16; constructing EyeNodes would look them up. Until they're found again there are no eye nodes to redirect.
+		inline std::optional<EyeNodes> GetEyeNodes()
 		{
-			REL::Relocation<EyeData*> eyeTargetNodes(REL::ID(858268));
-			//REL::Relocation<uint32_t*> eyeTargetIdx(REL::ID(880003));
-
-			EyeNodes result;
-			result.data = std::span<EyeData>(eyeTargetNodes.get(), 200);
-
-			return result;
+			return std::nullopt;
 		}
 	}
 #endif

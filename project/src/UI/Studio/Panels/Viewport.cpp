@@ -33,7 +33,7 @@ namespace UI::Studio
 		style.RotationOuterLineThickness = 4.0f;
 	}
 
-	void Viewport::Draw(DX11Renderer* a_renderer)
+	void Viewport::Draw(Renderer* a_renderer)
 	{
 		m_hovered.reset();
 		if (!a_renderer) return;
@@ -68,13 +68,13 @@ namespace UI::Studio
 					} else {
 						// Root bones get a short stub pointing up.
 						start = position;
-						start.z -= 8.0f;
+						start.z -= 8.0f * kScaleMultiplier;
 					}
 					const ProjectEx::ElementRef element{ id, static_cast<uint16_t>(bone) };
 					const auto display = m_session.GetBoneDisplay(element);
 					if (!display.visible) continue;
 					// Width follows bone length, so short bones like fingers don't hide the mesh around them.
-					const float halfWidth = std::clamp(ozz::math::Length(position - start) * 0.1f, 0.25f, 1.5f) * display.scale;
+					const float halfWidth = std::clamp(ozz::math::Length(position - start) * 0.1f, 0.25f * kScaleMultiplier, 1.5f * kScaleMultiplier) * display.scale;
 					ScreenSpaceDiamond diamond;
 					if (!a_renderer->BuildScreenSpaceDiamond(ToNiPoint(start), ToNiPoint(position), halfWidth, 0.0f, diamond)) continue;
 					items.push_back({ element, diamond, bone < static_cast<int32_t>(driven.size()) && driven[bone] ? kColorBoneIK : kColorBone, 1.5f });
@@ -82,7 +82,7 @@ namespace UI::Studio
 			} else if (type == ProjectEx::ObjectType::kLocator && view.locators) {
 				const auto world = m_project->GetWorldTransform({ id });
 				ScreenSpaceDiamond diamond;
-				if (!world || !a_renderer->BuildScreenSpaceDiamond(ToNiPoint(GetTranslation(*world)), 4.0f, diamond)) continue;
+				if (!world || !a_renderer->BuildScreenSpaceDiamond(ToNiPoint(GetTranslation(*world)), 4.0f * kScaleMultiplier, diamond)) continue;
 				ImU32 color = kColorLocator;
 				if (const auto owner = FindOwningChain(*m_project, id)) {
 					color = owner->second.pole == id ? kColorPole : owner->second.reached ? kColorEffectorReached : kColorEffectorUnreached;
@@ -110,7 +110,7 @@ namespace UI::Studio
 					a_renderer->DrawWorldLine(ToNiPoint(guide.shoulder), ToNiPoint(guide.dummy), kColorShoulderGuide);
 					for (const auto& point : { guide.neutral, guide.dummy }) {
 						ScreenSpaceDiamond diamond;
-						if (a_renderer->BuildScreenSpaceDiamond(ToNiPoint(point), 2.5f, diamond)) a_renderer->DrawWorldDiamond(diamond, kColorShoulderGuide, 1.5f);
+						if (a_renderer->BuildScreenSpaceDiamond(ToNiPoint(point), 2.5f * kScaleMultiplier, diamond)) a_renderer->DrawWorldDiamond(diamond, kColorShoulderGuide, 1.5f);
 					}
 				}
 			} else if (type == ProjectEx::ObjectType::kSplineIK && view.ikLines) {
@@ -147,7 +147,7 @@ namespace UI::Studio
 		}
 	}
 
-	void Viewport::DrawGizmo(DX11Renderer* a_renderer)
+	void Viewport::DrawGizmo(Renderer* a_renderer)
 	{
 		if (m_session.gizmoCancelled) {
 			// ImGuizmo keeps dragging until release; don't let it restart the cancelled transform.

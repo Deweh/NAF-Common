@@ -1,5 +1,5 @@
 #pragma once
-#include "UI/DX11Renderer.h"
+#include "UI/Renderer.h"
 
 #include <array>
 #include <cstdint>
@@ -17,19 +17,19 @@ namespace UI
 	{
 	public:
 		static ImguiMenu* GetSingleton();
-		static void Install(DX11Renderer* a_renderer);
+		static void Install(Renderer* a_renderer);
 
-		void Attach(DX11Renderer* a_renderer);
+		void Attach(Renderer* a_renderer);
 		void SetOpen(bool a_open);
 		[[nodiscard]] bool IsOpen() const;
 		void Draw();
 
 	private:
-		static void OnFrameThunk(DX11Renderer* a_renderer);
+		static void OnFrameThunk(Renderer* a_renderer);
 
         void DrawStudioTab();
 
-		DX11Renderer* m_renderer{ nullptr };
+		Renderer* m_renderer{ nullptr };
 		bool m_isOpen{ false };
 	};
 }

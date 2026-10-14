@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Animation/Studio/ProjectEx.h"
-#include "UI/DX11Renderer.h"
+#include "UI/Renderer.h"
 #include "imgui/imgui.h"
 
 // Constants, colors and small ImGui helpers shared by the Studio's panels and dialogs.
@@ -18,11 +18,21 @@ namespace UI::Studio
 	inline constexpr const char* kHistoryWindow = "History##StudioEx";
 
 	inline constexpr double kStatusDuration = 6.0;
+
+	// World units per Fallout 4 unit. Every fixed world-space size in the Studio (bones, locators, the scene center,
+	// camera distances and speeds) is written in Fallout 4 units, where a character is about 100 units tall; in
+	// Starfield one is about 1 unit tall.
+#if defined TARGET_GAME_F4
+	inline constexpr float kScaleMultiplier = 1.0f;
+#elif defined TARGET_GAME_SF
+	inline constexpr float kScaleMultiplier = 0.01f;
+#endif
+
 	// How far the camera backs off from what it focuses on, and where new locators go when nothing is selected.
-	inline constexpr float kFocusDistance = 150.0f;
+	inline constexpr float kFocusDistance = 150.0f * kScaleMultiplier;
 	// Where a project's scene center starts when it has no actor to start on: this far in front of the camera.
-	inline constexpr float kDefaultSceneCenterDistance = 100.0f;
-	inline constexpr float kSceneCenterSize = 30.0f;
+	inline constexpr float kDefaultSceneCenterDistance = 100.0f * kScaleMultiplier;
+	inline constexpr float kSceneCenterSize = 30.0f * kScaleMultiplier;
 	inline constexpr size_t kMaxNearbyActors = 32;
 
 	// ---- Colors ----
@@ -53,7 +63,7 @@ namespace UI::Studio
 	bool InputTextString(const char* a_label, const char* a_hint, std::string& a_value, ImGuiInputTextFlags a_flags = 0);
 	void DrawDiamond(ImDrawList* a_drawList, const ImVec2& a_center, float a_radius, ImU32 a_fill, ImU32 a_border);
 	// A cross on the ground at the scene center, with its forward arm longer.
-	void DrawSceneCenter(DX11Renderer* a_renderer, const ProjectEx::ScenePlacement& a_center);
+	void DrawSceneCenter(Renderer* a_renderer, const ProjectEx::ScenePlacement& a_center);
 
 	// ---- Names ----
 

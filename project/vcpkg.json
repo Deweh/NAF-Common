@@ -6,7 +6,10 @@
   "builtin-baseline": "6f29f12e82a8293156836ad81cc9bf5af41fe836",
   "homepage": "https://github.com/Deweh/NativeAnimationFrameworkSF",
   "dependencies": [
-    "spdlog",
+    {
+      "name": "spdlog",
+      "features": [ "wchar" ]
+    },
     "nlohmann-json",
     "simpleini",
     "tomlplusplus",

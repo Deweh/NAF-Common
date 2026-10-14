@@ -148,7 +148,7 @@ namespace Util
 
 		VFuncHook(size_t a_id, size_t a_idx, const char* a_name, func_t thunk)
 		{
-			Util::Trampoline::AddHook(0, [this, a_id = a_id, a_idx = a_idx, thunk = thunk, a_name = a_name](xSE::Trampoline&, uintptr_t baseAddr) {
+			Util::Trampoline::AddHook(0, [this, a_id = a_id, a_idx = a_idx, thunk = thunk, a_name = a_name](Util::Trampoline::TrampolineT&, uintptr_t baseAddr) {
 				REL::Relocation reloc{ REL::ID(a_id) };
 				_original = reinterpret_cast<func_t>(reloc.write_vfunc(a_idx, thunk));
 				logger::info("Applied {} vfunc hook at {:X}", a_name, (reloc.address() + (a_idx * 0x8)) - baseAddr);
@@ -176,7 +176,7 @@ namespace Util
 
 		Call5Hook(size_t a_id, const ptrdiff_t a_offset, const char* a_name, func_t thunk)
 		{
-			Util::Trampoline::AddHook(14, [this, a_id = a_id, a_offset = a_offset, thunk = thunk, a_name = a_name](xSE::Trampoline& t, uintptr_t baseAddr) {
+			Util::Trampoline::AddHook(14, [this, a_id = a_id, a_offset = a_offset, thunk = thunk, a_name = a_name](Util::Trampoline::TrampolineT& t, uintptr_t baseAddr) {
 				REL::Relocation reloc{ REL::ID(a_id), a_offset };
 				_original = reinterpret_cast<func_t>(t.write_call<5>(reloc.address(), thunk));
 				logger::info("Applied {} call hook at {:X}", a_name, reloc.address() - baseAddr);

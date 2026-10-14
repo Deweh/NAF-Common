@@ -19,6 +19,31 @@ namespace Settings
 
 			return -1;
 		}
+
+		// FNV-1a over the sorted, lowercased "name\0parent" of each game-controlled bone, so bone order and case don't matter.
+		std::optional<std::uint64_t> HashGameSkeleton(const std::vector<SkeletonDescriptor::BoneData>& a_bones)
+		{
+			std::vector<std::string> entries;
+			for (const auto& bone : a_bones) {
+				if (bone.controlledByGame)
+					entries.push_back(Util::String::ToLower(bone.name) + '\0' + Util::String::ToLower(bone.parent));
+			}
+			if (entries.empty())
+				return std::nullopt;
+
+			std::ranges::sort(entries);
+			std::uint64_t hash = 0xCBF29CE484222325;
+			const auto add = [&](std::uint8_t a_byte) {
+				hash ^= a_byte;
+				hash *= 0x100000001B3;
+			};
+			for (const auto& entry : entries) {
+				for (const char c : entry)
+					add(static_cast<std::uint8_t>(c));
+				add(0xFF);
+			}
+			return hash;
+		}
 	}
 
 	void SkeletonDescriptor::AddBone(const std::string_view name, const std::string_view parent, const ozz::math::Transform& restPose, bool controlledByDefault, bool controlledByGame)
@@ -146,6 +171,7 @@ namespace Settings
 		}
 
 		result->name = name;
+		result->gameSkeletonHash = detail::HashGameSkeleton(bones);
 		return result;
 	}
 

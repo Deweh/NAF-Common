@@ -2,6 +2,12 @@
 
 namespace Util::Trampoline
 {
+#if defined TARGET_GAME_F4
+	using TrampolineT = F4SE::Trampoline;
+#elif defined TARGET_GAME_SF
+	using TrampolineT = REL::Trampoline;
+#endif
+
 	struct DetourHook
 	{
 		uintptr_t* resultPtr;
@@ -11,6 +17,6 @@ namespace Util::Trampoline
 	};
 
 	void AddDetourHook(const DetourHook& hook);
-	void AddHook(size_t bytesAlloc, const std::function<void(xSE::Trampoline&, uintptr_t)>& func);
+	void AddHook(size_t bytesAlloc, const std::function<void(TrampolineT&, uintptr_t)>& func);
 	void ProcessHooks();
 }

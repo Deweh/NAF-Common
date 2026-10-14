@@ -135,6 +135,10 @@ namespace Animation
 				});
 			}
 
+#ifdef TARGET_GAME_SF
+			l->nodes.clear();
+			l->rigBinding.Reset();
+#endif
 			for (auto& name : skeleton->data->joint_names()) {
 				RE::NiAVObject* n = a_rootNode->GetObjectByName(name);
 				if (!n) {
@@ -142,13 +146,16 @@ namespace Animation
 				} else {
 					transforms.push_back(reinterpret_cast<ozz::math::Float4x4*>(&n->local));
 				}
+#ifdef TARGET_GAME_SF
+				l->nodes.emplace_back(n);
+#endif
 			}
 
 #ifdef TARGET_GAME_SF
 			if (l->eyeTrackData) {
-				l->eyeTrackData->eyeTarget = a_rootNode->GetObjectByName("Eye_Target");
-				l->eyeTrackData->lEye = a_rootNode->GetObjectByName("L_Eye");
-				l->eyeTrackData->rEye = a_rootNode->GetObjectByName("R_Eye");
+				l->eyeTrackData->eyeTarget = static_cast<RE::NiNode*>(a_rootNode->GetObjectByName("Eye_Target"));
+				l->eyeTrackData->lEye = static_cast<RE::NiNode*>(a_rootNode->GetObjectByName("L_Eye"));
+				l->eyeTrackData->rEye = static_cast<RE::NiNode*>(a_rootNode->GetObjectByName("R_Eye"));
 				flags.set(FLAGS::kRequiresEyeTrackUpdate);
 			}
 #endif
@@ -383,7 +390,9 @@ namespace Animation
 			return;
 
 		auto eyeNodes = RE::EyeTracking::GetEyeNodes();
-		for (auto& n : eyeNodes.data) {
+		if (!eyeNodes)
+			return;
+		for (auto& n : eyeNodes->data) {
 			if (n.leftEye.get() == l->eyeTrackData->lEye && n.rightEye.get() == l->eyeTrackData->rEye) {
 				n.leftEye.reset(l->eyeTrackData->eyeTarget);
 				n.rightEye.reset(l->eyeTrackData->eyeTarget);
@@ -404,7 +413,9 @@ namespace Animation
 			return;
 
 		auto eyeNodes = RE::EyeTracking::GetEyeNodes();
-		for (auto& n : eyeNodes.data) {
+		if (!eyeNodes)
+			return;
+		for (auto& n : eyeNodes->data) {
 			if (n.leftEye.get() == l->eyeTrackData->eyeTarget && n.rightEye.get() == l->eyeTrackData->eyeTarget) {
 				n.leftEye.reset(l->eyeTrackData->lEye);
 				n.rightEye.reset(l->eyeTrackData->rEye);
@@ -661,18 +672,19 @@ namespace Animation
 
 		l->faceAnimData = middleHigh->faceAnimationData;
 #elif defined TARGET_GAME_SF
-		auto m = l->rootNode->bgsModelNode;
+		auto m = l->rootNode->bgsModelNode.get();
 		if (!m) {
 			l->faceAnimData = nullptr;
 			return;
 		}
 
-		if (m->facegenNodes.size < 1) {
+		auto& facegenNodes = RE::GetFaceGenNodes(m);
+		if (facegenNodes.size < 1) {
 			l->faceAnimData = nullptr;
 			return;
 		}
 
-		auto fn = m->facegenNodes.data[0];
+		auto fn = facegenNodes.data[0];
 		if (!fn) {
 			l->faceAnimData = nullptr;
 			return;
@@ -925,6 +937,18 @@ namespace Animation
 		const auto generatorMask = generator ? generator->GetBoneMask() : nullptr;
 		const auto& mask = generatorMask && generatorMask->size() == transforms.size() ? *generatorMask : loadedData->boneMask;
 
+#ifdef TARGET_GAME_SF
+		const auto rigLocals = BindRig();
+		const auto& slots = loadedData->rigBinding.slots;
+		const auto write = [&](size_t i, const ozz::math::Float4x4& a_transform) {
+			*dest[i] = a_transform;
+			if (rigLocals && slots[i] != RE::ModelRig::kInvalidSlot)
+				*reinterpret_cast<ozz::math::Float4x4*>(&rigLocals[slots[i]]) = a_transform;
+		};
+#else
+		const auto write = [&](size_t i, const ozz::math::Float4x4& a_transform) { *dest[i] = a_transform; };
+#endif
+
 		// Bones the game doesn't animate keep whatever was written last, so one that's masked off again returns to rest.
 		auto& applied = loadedData->appliedMask;
 		if (applied != mask) {
@@ -939,7 +963,7 @@ namespace Animation
 						rest.resize(skeleton->data->num_joints());
 						Util::Ozz::UnpackSoaTransforms(restSoa, rest, skeleton->data.get());
 					}
-					*dest[i] = rest[i];
+					write(i, rest[i]);
 				}
 			}
 			applied = mask;
@@ -948,23 +972,64 @@ namespace Animation
 		size_t end = transforms.size();
 		for (size_t i = 0; i < end; i++) {
 			if (mask[i]) {
-				*dest[i] = source[i];
+				write(i, source[i]);
+			}
+		}
+	}
+
+#ifdef TARGET_GAME_SF
+	void Graph::RigBinding::Reset()
+	{
+		if (rig) {
+			RE::ModelRig::Release(rig);
+			rig = nullptr;
+		}
+		slots.clear();
+		anySlot = false;
+	}
+
+	// Returns the rig's local transforms, which is what the game draws from (see RE::ModelRig), or nullptr if there's nowhere
+	// to write. NiAVObject::local is still written too, since it seeds the rig whenever the game rebuilds it.
+	RE::NiTransform* Graph::BindRig()
+	{
+		auto& l = loadedData;
+		auto& b = l->rigBinding;
+		const auto modelNode = l->rootNode ? l->rootNode->bgsModelNode.get() : nullptr;
+		const auto rig = modelNode ? modelNode->rig : nullptr;
+		if (!rig || !rig->local || !rig->local->data) {
+			b.Reset();
+			return nullptr;
+		}
+
+		// A rebuilt rig is a new object, and its slots can differ.
+		if (rig != b.rig) {
+			b.Reset();
+			RE::ModelRig::AddRef(rig);
+			b.rig = rig;
+
+			std::unordered_map<const void*, uint16_t> slotByName;
+			RE::ModelRig::ForEachSlot(rig, [&](const void* a_name, uint16_t a_slot) { slotByName.emplace(a_name, a_slot); });
+			const auto size = RE::ModelRig::GetSize(rig->local);
+			b.slots.assign(l->nodes.size(), RE::ModelRig::kInvalidSlot);
+			for (size_t i = 0; i < l->nodes.size(); i++) {
+				if (!l->nodes[i])
+					continue;
+				if (auto iter = slotByName.find(RE::ModelRig::GetNameHandle(l->nodes[i].get())); iter != slotByName.end() && iter->second < size) {
+					b.slots[i] = iter->second;
+					b.anySlot = true;
+				}
 			}
 		}
 
-#ifdef TARGET_GAME_SF
-		auto r = loadedData->rootNode;
-		if (!r)
-			return;
-		auto m = r->bgsModelNode;
-		if (!m)
-			return;
-		auto u = m->unk10;
-		if (!u)
-			return;
-		u->needsUpdate = true;
-#endif
+		// No joint has a slot, which means the rig's layout is not what's expected. Fall back to having the game rebuild the
+		// rig from NiAVObject::local, which costs a full rebuild every frame but keeps the output visible.
+		if (!b.anySlot) {
+			rig->rebuild = true;
+			return nullptr;
+		}
+		return rig->local->data;
 	}
+#endif
 
 	void Graph::PushRootOutput(bool a_visible)
 	{
@@ -1025,30 +1090,11 @@ namespace Animation
 #elif defined TARGET_GAME_SF
 		target->data.location = rootTransform.translate;
 
-		static RE::TransformsManager* transformManager = RE::TransformsManager::GetSingleton();
-		if (a_visible) {
-			transformManager->RequestPositionUpdate(target.get(), rootTransform.translate);
-		} else {
-			//This doesn't keep the actor perfectly in place, but it's good enough for when the camera is looking away.
-			SFSE::GetTaskInterface()->AddTask([rootXYZ = rootTransform, target = target] {
-				auto actor = target->As<RE::Actor>();
-				if (!actor)
-					return;
-
-				auto process = actor->currentProcess;
-				if (!process)
-					return;
-
-				auto middleHigh = process->middleHigh;
-				if (!middleHigh)
-					return;
-
-				auto& charController = middleHigh->charController;
-				if (!charController)
-					return;
-
-				charController->SetPosition({ rootXYZ.translate.x, rootXYZ.translate.y, rootXYZ.translate.z });
-			});
+		// The request sets the reference's position, its character controller's and its 3D's, on the main thread (it queues
+		// itself when called from another), so it covers both the visible and the culled case.
+		(void)a_visible;
+		if (const auto transformsManager = RE::TransformsManager::GetSingleton()) {
+			transformsManager->RequestPositionUpdate(target.get(), rootTransform.translate);
 		}
 #endif
 	}

@@ -1,4 +1,5 @@
 #include "Evaluator.h"
+#include "Util/Game.h"
 
 #include "GameBridge.h"
 #include "Skeleton.h"
@@ -71,7 +72,7 @@ namespace Animation::Studio
 
 	bool Evaluator::RefreshRootWorld(ActorObject& a_actor) const
 	{
-		const auto root = a_actor.actor ? a_actor.actor->Get3D() : nullptr;
+		const auto root = a_actor.actor ? Util::Game::Get3D(a_actor.actor.get()) : nullptr;
 		if (!root) {
 			const bool changed = a_actor.hasRoot;
 			a_actor.hasRoot = false;

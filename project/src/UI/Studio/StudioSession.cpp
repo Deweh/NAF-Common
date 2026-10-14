@@ -18,7 +18,7 @@ namespace UI::Studio
 	// Out of line, so the panels' destructors (the export dialog waits for its writer) run with every type complete.
 	StudioSession::~StudioSession() = default;
 
-	void StudioSession::Draw(DX11Renderer* a_renderer)
+	void StudioSession::Draw(Renderer* a_renderer)
 	{
 		optionsBar.Draw();
 		outliner.Draw();

@@ -1,4 +1,5 @@
 #include "GraphManager.h"
+#include "Util/Game.h"
 #include "Settings/Settings.h"
 #include "Serialization/GLTFImport.h"
 #include "Util/String.h"
@@ -331,9 +332,8 @@ namespace Animation
 #if defined TARGET_GAME_F4
 		g->On3DChange(static_cast<RE::NiNode*>(a_actor->Get3D()));
 #elif defined TARGET_GAME_SF
-		auto loadedData = a_actor->loadedData.lock_read();
-		if (*loadedData != nullptr) {
-			g->On3DChange(static_cast<RE::BGSFadeNode*>(loadedData->data3D.get()));
+		if (const auto root = Util::Game::Get3D(a_actor)) {
+			g->On3DChange(static_cast<RE::BGSFadeNode*>(root));
 		}
 #endif
 		return g;
@@ -403,35 +403,41 @@ namespace Animation
 	GraphManager& gm = *GraphManager::GetSingleton();
 
 #ifdef TARGET_GAME_SF
-	/*
-	static Util::Call5Hook<void(RE::IAnimationGraphManagerHolder*, RE::BSAnimationUpdateData*, void*)> GraphUpdateHook(118488, 0x61, "IAnimationGraphManagerHolder::UpdateAnimationGraphManager",
-		[](RE::IAnimationGraphManagerHolder* a_graphHolder, RE::BSAnimationUpdateData* a_updateData, void* a_graph) {
+	// IAnimationGraphManagerHolder::UpdateAnimationGraphManager: runs once per holder per frame, from Actor::UpdateAnimation,
+	// PlayerCharacter::UpdateAnimation and TESObjectREFR::UpdateAnimation. AnimationManager::Update is not used because the
+	// holder's dependent graph managers repeat it for the same reference within a frame.
+	// Returns whether the holder's graph was updated.
+	static Util::DetourHook<bool(RE::IAnimationGraphManagerHolder*, RE::BSAnimationUpdateData*, bool)> GraphUpdateHook(73229, "IAnimationGraphManagerHolder::UpdateAnimationGraphManager",
+		[](RE::IAnimationGraphManagerHolder* a_graphHolder, RE::BSAnimationUpdateData* a_updateData, bool a_updateDependents) -> bool {
 			std::shared_lock l{ gm.stateLock };
 			auto& m = gm.state->loadedGraphs;
-			if (auto iter = m.find(a_graphHolder); iter != m.end()) {
-				auto& g = iter->second;
-
-				bool modelCulled = a_updateData->modelCulled;
-				a_updateData->modelCulled = modelCulled || !g->GetRequiresBaseTransforms();
-				PERF_TIMER_START(start);
-				GraphUpdateHook(a_graphHolder, a_updateData, a_graph);
-				PERF_TIMER_END(start, baseUpdateTime);
-
-				std::unique_lock gl{ g->lock };
-				PERF_TIMER_COPY_VALUE(baseUpdateTime, g->baseUpdateMs);
-				g->Update(a_updateData->timeDelta, !modelCulled, nullptr);
-
-				if (g->GetRequiresDetach()) {
-					l.unlock();
-					gl.unlock();
-					gm.DetachGraph(static_cast<RE::TESObjectREFR*>(a_graphHolder));
-				}
-			} else {
+			auto iter = m.find(a_graphHolder);
+			if (iter == m.end()) {
 				l.unlock();
-				GraphUpdateHook(a_graphHolder, a_updateData, a_graph);
+				return GraphUpdateHook(a_graphHolder, a_updateData, a_updateDependents);
 			}
+
+			auto& g = iter->second;
+			bool modelCulled = a_updateData->modelCulled;
+			a_updateData->modelCulled = modelCulled || !g->GetRequiresBaseTransforms();
+			PERF_TIMER_START(start);
+			const bool updated = GraphUpdateHook(a_graphHolder, a_updateData, a_updateDependents);
+			PERF_TIMER_END(start, baseUpdateTime);
+			if (!updated) {
+				return false;
+			}
+
+			std::unique_lock gl{ g->lock };
+			PERF_TIMER_COPY_VALUE(baseUpdateTime, g->baseUpdateMs);
+			g->Update(a_updateData->timeDelta, !modelCulled, nullptr);
+
+			if (g->GetRequiresDetach()) {
+				l.unlock();
+				gl.unlock();
+				gm.DetachGraph(static_cast<RE::TESObjectREFR*>(a_graphHolder));
+			}
+			return true;
 		});
-*/
 
 	static Util::VFuncHook<void*(void*, void*)> PerspectiveSwitchHook(451974, 0x1, "::HandlePlayerPerspectiveSwitchForEyeTracking",
 		[](void* a1, void* a2) -> void* {

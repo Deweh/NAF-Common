@@ -1,10 +1,12 @@
 #include "StudioProjectImport.h"
+#include "Util/Game.h"
 
 #include "StudioProjectFormat.h"
 #include "Animation/Studio/Modifiers/Hand.h"
 #include "Animation/Studio/Modifiers/IKChain.h"
 #include "Animation/Studio/Modifiers/SplineIK.h"
 #include "Animation/Studio/Skeleton.h"
+#include "Settings/Settings.h"
 #include "Util/String.h"
 
 #include <fstream>
@@ -450,11 +452,10 @@ namespace Serialization
 			const auto plugin = OptionalField(a_hint, "plugin");
 			const auto localFormId = OptionalField(a_hint, "localFormId");
 			if (plugin && localFormId) {
-				if (const auto dataHandler = RE::TESDataHandler::GetSingleton()) {
-					form = dataHandler->LookupForm(static_cast<RE::TESFormID>(ReadUInt(*localFormId, "localFormId")), ReadString(*plugin, "plugin"));
-				}
+				const auto formId = Util::Game::ResolvePluginFormID(static_cast<RE::TESFormID>(ReadUInt(*localFormId, "localFormId")), ReadString(*plugin, "plugin"));
+				form = formId != 0 ? Util::Game::LookupForm(formId) : nullptr;
 			} else if (const auto formId = OptionalField(a_hint, "formId")) {
-				form = RE::TESForm::GetFormByID(static_cast<RE::TESFormID>(ReadUInt(*formId, "formId")));
+				form = Util::Game::LookupForm(static_cast<RE::TESFormID>(ReadUInt(*formId, "formId")));
 			}
 			return form && form->As<RE::Actor>() ? form->GetFormID() : 0;
 		}
@@ -1117,7 +1118,7 @@ namespace Serialization
 		const auto object = a_project.FindObject(a_actor);
 		const auto actor = object && object->GetType() == ProjectEx::ObjectType::kActor ? static_cast<const Animation::Studio::ActorObject*>(object) : nullptr;
 		if (!actor || !actor->skeleton) return std::unexpected("The actor must be bound to apply a rig.");
-		if (!Util::String::CaseInsensitiveCompare(file.skeletonId, actor->skeletonId)) {
+		if (!Settings::AreSkeletonsCompatible(file.skeletonId, actor->skeletonId)) {
 			return std::unexpected(std::format("This rig is for skeleton \"{}\", and the actor uses \"{}\".", file.skeletonId, actor->skeletonId));
 		}
 

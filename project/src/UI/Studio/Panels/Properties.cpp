@@ -92,7 +92,7 @@ namespace UI::Studio
 						m_project->EndEdit();
 					};
 					float translation[3]{ placement->translation.x, placement->translation.y, placement->translation.z };
-					const bool moved = ImGui::DragFloat3("Position", translation, 0.1f);
+					const bool moved = ImGui::DragFloat3("Position", translation, 0.1f * kScaleMultiplier);
 					TrackFieldEdit("Move actor", moved, [&] {
 						placement->translation = { translation[0], translation[1], translation[2] };
 						apply();
@@ -143,7 +143,7 @@ namespace UI::Studio
 			DrawKeyIndicator(translationRef);
 			ImGui::SameLine();
 			float values[3]{ translation->x, translation->y, translation->z };
-			const bool changed = ImGui::DragFloat3("Translation", values, 0.1f);
+			const bool changed = ImGui::DragFloat3("Translation", values, 0.1f * kScaleMultiplier);
 			TrackFieldEdit("Edit translation", changed, [&] { m_session.ApplyFieldValue(translationRef, ozz::math::Float3{ values[0], values[1], values[2] }); });
 		}
 

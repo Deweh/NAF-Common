@@ -2,6 +2,7 @@
 
 #include "GameBridge.h"
 #include "StudioMath.h"
+#include "Util/String.h"
 
 namespace Animation::Studio
 {
@@ -221,7 +222,12 @@ namespace Animation::Studio
 		const std::string skeletonId = GetActorSkeletonId(a_actor);
 		auto skeleton = GetActorSkeleton(a_actor);
 		if (!skeleton) return std::unexpected("The actor does not have a usable animation skeleton.");
-		if (static_cast<size_t>(skeleton->data->num_joints()) != slot->bones.size()) {
+		// Bone tracks are indexed by joint, so a compatible skeleton of another race still has to have the same joints in
+		// the same order to rebind without reloading.
+		const auto joints = skeleton->data->joint_names();
+		const auto boundJoints = slot->skeleton ? slot->skeleton->data->joint_names() : decltype(joints){};
+		if (static_cast<size_t>(skeleton->data->num_joints()) != slot->bones.size() ||
+			(slot->skeleton && !std::ranges::equal(joints, boundJoints, [](const char* a_lhs, const char* a_rhs) { return Util::String::CaseInsensitiveCompare(a_lhs, a_rhs); }))) {
 			return std::unexpected("The actor skeleton has a different joint layout.");
 		}
 

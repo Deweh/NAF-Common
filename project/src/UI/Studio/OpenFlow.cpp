@@ -1,4 +1,5 @@
 #include "UI/StudioMenuEx.h"
+#include "Util/Game.h"
 
 #include "Animation/Studio/StudioMath.h"
 #include "UI/Studio/StudioSession.h"
@@ -49,7 +50,7 @@ namespace UI
 						const auto addCandidate = [&](RE::Actor* a_actor) {
 							if (a_actor && !std::ranges::contains(candidates, a_actor) && ProjectEx::CheckActorCompatibility(slot.skeletonId, slot.gender, a_actor)) candidates.push_back(a_actor);
 						};
-						addCandidate(slot.bindingHint != 0 ? RE::TESForm::GetFormByID<RE::Actor>(slot.bindingHint) : nullptr);
+						addCandidate(slot.bindingHint != 0 ? Util::Game::LookupForm<RE::Actor>(slot.bindingHint) : nullptr);
 						addCandidate(consoleActor);
 						for (const auto actor : GetNearbyActors()) addCandidate(actor);
 
@@ -119,7 +120,7 @@ namespace UI
 		if (!warnings.empty()) m_session->popups.ShowWarnings(Popup::kLoadWarnings, std::move(warnings));
 	}
 
-	void StudioMenuEx::DrawScenePlacement(DX11Renderer* a_renderer)
+	void StudioMenuEx::DrawScenePlacement(Renderer* a_renderer)
 	{
 		bool place = false;
 		bool cancel = false;
@@ -149,7 +150,7 @@ namespace UI
 				if (!placement) continue;
 				const auto world = center * ProjectEx::ToMatrix(*placement);
 				a_renderer->DrawWorldLine(ToNiPoint(GetTranslation(center)), ToNiPoint(GetTranslation(world)), kColorSceneCenter);
-				a_renderer->DrawWorldDiamond(ToNiPoint(GetTranslation(world)), 6.0f, kColorSceneCenter, 2.0f);
+				a_renderer->DrawWorldDiamond(ToNiPoint(GetTranslation(world)), 6.0f * kScaleMultiplier, kColorSceneCenter, 2.0f);
 			}
 
 			const auto& io = ImGui::GetIO();

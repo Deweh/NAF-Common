@@ -7,7 +7,7 @@ namespace Util::Trampoline
 	struct HookData
 	{
 		size_t totalAlloc = 0;
-		std::vector<std::function<void(xSE::Trampoline&, uintptr_t)>> hookFuncs;
+		std::vector<std::function<void(TrampolineT&, uintptr_t)>> hookFuncs;
 		std::vector<DetourHook> detourHooks;
 	};
 
@@ -23,7 +23,7 @@ namespace Util::Trampoline
 		tempData->detourHooks.push_back(hook);
 	}
 
-	void AddHook(size_t bytesAlloc, const std::function<void(xSE::Trampoline&, uintptr_t)>& func)
+	void AddHook(size_t bytesAlloc, const std::function<void(TrampolineT&, uintptr_t)>& func)
 	{
 		auto& tempData = GetTempData();
 		tempData->totalAlloc += bytesAlloc;
@@ -33,7 +33,11 @@ namespace Util::Trampoline
 	void ProcessHooks()
 	{
 		auto& tempData = GetTempData();
+#if defined TARGET_GAME_F4
 		uintptr_t baseAddr = REL::Module::get().base();
+#elif defined TARGET_GAME_SF
+		uintptr_t baseAddr = REX::FModule::GetExecutingModule().GetBaseAddress();
+#endif
 
 		if (!tempData->detourHooks.empty()) {
 			DetourTransactionBegin();
@@ -50,10 +54,19 @@ namespace Util::Trampoline
 			DetourTransactionCommit();
 		}
 
+#if defined TARGET_GAME_F4
 		if (tempData->totalAlloc > 0) {
 			xSE::AllocTrampoline(tempData->totalAlloc);
 		}
 		auto& t = xSE::GetTrampoline();
+#elif defined TARGET_GAME_SF
+		if (tempData->totalAlloc > 0) {
+			// Deprecated, but the only way to size the trampoline after SFSE::Init, once every hook has been registered.
+#pragma warning(suppress: 4996)
+			SFSE::AllocTrampoline(tempData->totalAlloc);
+		}
+		auto& t = REL::GetTrampoline();
+#endif
 		for (auto& f : tempData->hookFuncs) {
 			f(t, baseAddr);
 		}

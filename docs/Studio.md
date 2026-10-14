@@ -131,7 +131,7 @@ An actor's own placement (`kSelf`) is **not** a property; it's set through `SetA
 
 **ActorObject**
 - **Slot requirements:**
-  - `skeletonId`, from `Settings::GetSkeletonIdentifier`.
+  - `skeletonId`, from `Settings::GetSkeletonIdentifier`: the EditorID of the actor's race. An actor fits a slot when `Settings::AreSkeletonsCompatible` accepts its id: the same id, or a race whose skeleton animates the same game bones (`OzzSkeleton::gameSkeletonHash`). On Fallout 4 the saved id can also be the race's behavior graph project, which older projects store.
   - `gender`; `kNone` means any.
 - **Binding:**
   - `actor` is a `NiPointer`, null when the slot is unbound.
@@ -297,7 +297,7 @@ Drawing happens before `Update`, so the overlays show the pose that's on screen;
 **Constraints enforced on edit:**
 - `SetLocatorParent` rejects loops (`WouldCreateLocatorLoop`) and parents that make a chain or spline read its own output (`HasSelfDependentModifier`). `SetIKChainSettings` rejects a shoulder for the same reason.
 - `RemoveObject` cascades: an actor takes its modifiers, a chain takes its effector and pole, and a spline takes its controls. Removing a locator removes the chain or spline that uses it (`GetLocatorOwner`). Surviving locators parented to a removed object are reparented to scene space, keeping their world transform.
-- `BindActor` checks the skeleton id (case-insensitive), the gender, and that the joint count matches the slot.
+- `BindActor` checks that the skeleton ids are compatible, the gender, and that the joints match the slot's, in the same order.
 
 ### 2.8 Scene center and placement
 
@@ -607,7 +607,7 @@ A rig is one actor's setup, saved apart from any project, so it doesn't have to 
 - its **bone mask** overrides,
 - and, in the rig's `"editor"` section, its **bone display** (StudioMenuEx state, §3.6).
 
-It can be applied to any actor with the same skeleton id. Bones are matched by name, so a missing bone is a warning, not an error.
+It can be applied to any actor with a compatible skeleton id. Bones are matched by name, so a missing bone is a warning, not an error.
 
 **Saving** (`StudioProjectExport::SaveRig`):
 - The rig stores **current values, not defaults.** Each modifier's and locator's live values are written as its defaults, so the new objects start, and reset to, what was on screen.
@@ -618,7 +618,7 @@ It can be applied to any actor with the same skeleton id. Bones are matched by n
   - Parented to anything else (another actor, or a locator outside the rig): converted to scene space where it stands, then stored as above.
 
 **Applying** (`StudioProjectImport::ApplyRig` → `ProjectEx::ApplyRig`):
-1. **The importer checks the actor.** It must be bound, and its skeleton id must match the rig's (case-insensitive), or nothing changes. A gender mismatch is only a warning.
+1. **The importer checks the actor.** It must be bound, and its skeleton id must be compatible with the rig's (`Settings::AreSkeletonsCompatible`), or nothing changes. A gender mismatch is only a warning.
 2. **It resolves names.** Bones are resolved against the actor's skeleton, and objects are built with the importer's `BuildObject`, the same code that opens projects. A modifier whose bones don't fit is dropped with a warning, as when opening a project (§4.4). A missing locator parent bone falls back to the actor root.
 3. **`ProjectEx::ApplyRig` makes one commit, "Apply rig":**
    - **Selection.** Keeps the modifiers of the types in `RigOptions` (`ikChains`, `hands`, `splineIKs`), and only the locators those modifiers use.

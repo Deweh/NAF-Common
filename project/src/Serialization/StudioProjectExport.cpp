@@ -1,4 +1,5 @@
 #include "StudioProjectExport.h"
+#include "Util/Game.h"
 
 #include "StudioProjectFormat.h"
 #include "Animation/Studio/Modifiers/Hand.h"
@@ -53,11 +54,10 @@ namespace Serialization
 		json MakeBindingHint(RE::TESFormID a_formId)
 		{
 			json hint{ { "formId", a_formId } };
-			const auto form = a_formId != 0 ? RE::TESForm::GetFormByID(a_formId) : nullptr;
-			const auto file = form && (a_formId >> 24) != 0xFF ? form->GetFile(0) : nullptr;
-			if (file) {
-				hint["plugin"] = std::string(file->GetFilename());
-				hint["localFormId"] = (a_formId >> 24) == 0xFE ? a_formId & 0xFFF : a_formId & 0xFFFFFF;
+			const auto form = a_formId != 0 ? Util::Game::LookupForm(a_formId) : nullptr;
+			if (const auto pluginFormId = form ? Util::Game::GetPluginFormID(a_formId) : std::nullopt) {
+				hint["plugin"] = pluginFormId->plugin;
+				hint["localFormId"] = pluginFormId->localFormId;
 			}
 			if (const auto actor = form ? form->As<RE::Actor>() : nullptr) {
 				if (const char* name = actor->GetDisplayFullName(); name && name[0] != '\0') hint["name"] = name;

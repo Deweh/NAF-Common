@@ -15,12 +15,12 @@ namespace UI
 		return &singleton;
 	}
 
-	void ImguiMenu::Install(DX11Renderer* a_renderer)
+	void ImguiMenu::Install(Renderer* a_renderer)
 	{
 		GetSingleton()->Attach(a_renderer);
 	}
 
-	void ImguiMenu::Attach(DX11Renderer* a_renderer)
+	void ImguiMenu::Attach(Renderer* a_renderer)
 	{
 		m_renderer = a_renderer;
 		a_renderer->SetDrawCallback(&ImguiMenu::OnFrameThunk);
@@ -89,7 +89,7 @@ namespace UI
 		ImGui::End();
 	}
 
-	void ImguiMenu::OnFrameThunk(DX11Renderer* a_renderer)
+	void ImguiMenu::OnFrameThunk(Renderer* a_renderer)
 	{
 		a_renderer;
 		GetSingleton()->Draw();
