@@ -173,12 +173,13 @@ An actor's own placement (`kSelf`) is **not** a property; it's set through `SetA
 ```cpp
 Sequence { id, name, frameRate, frameCount, loopSmoothing,
            map<PropertyRef, Track> tracks,
-           set<PropertyRef> loopSmoothedProperties }
+           set<PropertyRef> loopSmoothedProperties,
+           map<PropertyRef, BezierMode> bezierModes }
 ```
 
 `DuplicateSequence` copies the sequence and switches to the copy, in one commit. Duplicating the active sequence also carries over its live values: after the switch, every value that differs from the source's is recorded as a `LiveValueChange`, so unkeyed edits come along as unkeyed edits.
 
-`loopSmoothedProperties` is kept separate from `tracks`. Moving or rescaling every key of a track erases the track and writes it again, and that must not lose the setting.
+`loopSmoothedProperties` and `bezierModes` are kept separate from `tracks`. Moving or rescaling every key of a track erases the track and writes it again, and that must not lose the settings. `bezierModes` holds only properties that aren't Local.
 
 **Sampling** (`SampleCurve`):
 - Before the first key or after the last, the value clamps (unless the curve is cyclic, see below).
@@ -189,12 +190,23 @@ Sequence { id, name, frameRate, frameCount, loopSmoothing,
 
 > ⚠ Never use `ozz::math::SLerp`. It returns its first argument when the inputs are within ~5° (`|cos| ≥ 0.999`), which turned Bezier rotation into judder. `SlerpShortest` falls back to NLerp at cos ≥ 0.9995 instead.
 
-**Auto tangents** (`ComputeAutoTangents`) are Catmull-Rom style, with handles at ⅓ of the neighbouring interval.
+**Auto tangents** depend on the track's **Bezier mode** (`Sequence::GetBezierMode`, Local unless set). Either way, handles sit at ⅓ of the neighbouring interval.
+
+**Local** (`ComputeAutoTangents`) is Catmull-Rom style: each key's velocity comes from its two neighbours.
 - Quaternions work in log space relative to the key.
 - Rotational extrema are auto-clamped: the shared velocity is limited to the smaller of the incoming and outgoing speeds. If the motion reverses direction at the key, the velocity is zero.
 - End keys use one-sided velocities.
+- With uneven key spacing, the longer neighbouring segment dominates. A key placed close to another gets roughly the average speed of the whole span, so keying an in-between changes the curve around it even when the key lies on the curve.
 
-`RegenerateTangents` runs after every settings change. A key write regenerates only the keys whose tangents can change: its neighbours, and the loop range's ends before and after (a range end's tangent depends on the other end). That gives the same result as regenerating the whole curve.
+**Continuous** (`RegenerateContinuousTangents`) is a C2 cubic spline: the velocities of every key touching a Bezier segment are solved together (a tridiagonal system), so acceleration also matches on both sides of each key.
+- **Keying a frame on the curve doesn't change it.** The old curve still passes through every key and is C2, and the solution is unique. This is exact for floats and Float3, and close for quaternions (about 0.4° in testing).
+- The trade-off: moving a key also moves the curve past its neighbours, fading by about 0.27× per key with even spacing. A nudge to a key just after a still one carries forward. In testing, raising a key 3 frames after a still key by 0.01 moved the curve by up to 0.026 about 8 frames later (Local: 0.13).
+- **Per component.** Each component is solved separately: floats use x, Float3 uses xyz, and quaternions use the world-space angular velocity in `QuaternionLog` units, which is linear to first order. A key holds a component still (velocity 0, which splits the system there) when that component's slope changes sign or is zero on either side. This covers extrema and holds (equal neighbours stay exactly still), and a circle keyed at four points holds only the component that turns at each key, so it never stops. If a solved velocity points against an adjacent segment's slope (an overshoot), that key is held too and the component is solved again.
+- **Run ends.** A key with Bezier on one side only continues a Linear neighbour's velocity, or otherwise ends with zero acceleration (natural end). Step segments and open curve ends are natural ends.
+- **Cyclic curves** solve the loop range as a cycle, cut at any held key. A loop with no held key (a rotation that keeps turning the same way) uses a cyclic tridiagonal solve (Sherman-Morrison). Keys outside the loop range keep Local tangents, since cyclic sampling never reaches them.
+- Keys that touch no Bezier segment keep Local tangents.
+
+`RegenerateTangents` runs after every settings change, including a Bezier mode change. In Local mode, a key write regenerates only the keys whose tangents can change: its neighbours, and the loop range's ends before and after (a range end's tangent depends on the other end). That gives the same result as regenerating the whole curve. In Continuous mode every write re-solves the whole curve, which is O(keys). Bulk edits (moving or rescaling all keys) are quadratic in the length of a Continuous track, which is fine for hand-placed keys.
 
 **Loop smoothing** (called **Cyclic** in the UI; the code and file format keep the old name for compatibility)
 - It's on for a property when `sequence.loopSmoothing || loopSmoothedProperties.contains(ref)`.
@@ -229,10 +241,11 @@ Sequence { id, name, frameRate, frameCount, loopSmoothing,
 | `LiveValueChange{property, before, after, editedBefore}` | Sets `edited = true` going forward. |
 | `FrameChange{before, after, discarded}` | Captures edited *tracked* values, sets the frame, then resamples everything. |
 | `ActiveSequenceChange{before, after, frameBefore, frameAfter, discarded}` | Captures *all* live values, resets to defaults, then resamples. |
-| `ObjectLifetimeChange{ObjectSnapshot, existsAfter}` | The snapshot owns the object, its tracks in every sequence, its loop-smoothing entries, and its index and modifier index. |
+| `ObjectLifetimeChange{ObjectSnapshot, existsAfter}` | The snapshot owns the object, its tracks in every sequence, its loop-smoothing and Bezier mode entries, and its index and modifier index. |
 | `SequenceLifetimeChange{id, sequence, index, existsAfter}` | |
 | `SequenceSettingsChange{id, before, after}` | Name, frame rate, frame count, loop smoothing (cyclic). Regenerates tangents and resamples unedited properties. |
 | `ObjectRenameChange`, `LocatorParentChange`, `LoopSmoothingChange` | |
+| `BezierModeChange{sequence, property, before, after}` | Regenerates the track's tangents and resamples it if unedited. `SetBezierMode` records one per property whose mode changes, so undoing a batch restores mixed modes. Bool properties are skipped. |
 | `LocatorDefaultsChange{id, before, after}` | A locator's default translation, rotation and scale. Recorded by a reparent that keeps the world transform, and by `SetLocatorDefaultsToCurrent`. |
 | `ActorBindingChange{id, before, after}` | Detaches and reattaches the StudioGenerator, re-initializes the pose if the skeleton changed, and updates `bindingHint`. |
 | `ActorPlacementChange{id, before, after}` | `Update()` applies it next frame. |
@@ -755,12 +768,13 @@ During an interaction, only Escape (cancel) is handled.
 - Then scene-space locators. Locators owned by a chain or spline are listed only under it.
 - The session's `reveal` expands and scrolls to an element, for example after a 3D pick or creating an object. It uses `SetNextItemOpen(true)`, not `DefaultOpen`, because DefaultOpen only applies to nodes without stored state.
 - Context menus by element:
-  - **Bone:** Remove (non-bone selection), Create IK Chain, Create Spline IK..., Create Finger Controls, Add Locator Here, Insert Key, Reset Transform, Display ▸, Mask ▸ (Mask / Unmask, and the same for the hierarchy), Select Hierarchy.
-  - **Actor:** Rename, Bind ▸ (Previous: …, Console Selection, Nearby ▸, By Form ID…), Unbind, Add Locator, Reset Pose, Reset Bone Display, Reset Bone Mask, Save Rig…, Apply Rig… (bound actors only).
-  - **IK chain:** Rename, Enabled, Shoulder ▸ (None / any ancestor of the upper bone), Select Effector/Pole.
-  - **Hand:** Rename, Enabled, Presets ▸, Copy Pose To ▸.
-  - **Spline IK:** Rename, Enabled, Select Controls.
-  - **Locator:** Rename, Reparent ▸ (Scene / actor ▸ Root / bones / locators), Insert Key, Reset Transform, Set Current as Default (`SetLocatorDefaultsToCurrent` on every selected locator, one commit; also repairs projects saved with bad defaults).
+  - **Bone:** Remove (non-bone selection), Create IK Chain, Create Spline IK..., Create Finger Controls, Add Locator Here, Insert Key, Reset Transform, Display ▸, Mask ▸ (Mask / Unmask, and the same for the hierarchy), Bezier Mode ▸ (Local / Continuous, and the same for the hierarchy), Select Hierarchy.
+  - **Actor:** Rename, Bind ▸ (Previous: …, Console Selection, Nearby ▸, By Form ID…), Unbind, Add Locator, Reset Pose, Reset Bone Display, Reset Bone Mask, Bezier Mode ▸, Save Rig…, Apply Rig… (bound actors only).
+  - **IK chain:** Rename, Enabled, Shoulder ▸ (None / any ancestor of the upper bone), Bezier Mode ▸, Select Effector/Pole.
+  - **Hand:** Rename, Enabled, Bezier Mode ▸, Presets ▸, Copy Pose To ▸.
+  - **Spline IK:** Rename, Enabled, Bezier Mode ▸, Select Controls.
+  - **Locator:** Rename, Reparent ▸ (Scene / actor ▸ Root / bones / locators), Insert Key, Reset Transform, Set Current as Default (`SetLocatorDefaultsToCurrent` on every selected locator, one commit; also repairs projects saved with bad defaults), Bezier Mode ▸.
+  - **Bezier Mode ▸** acts on every selected element's properties: an actor brings all its bones and its modifiers, and a modifier (or an actor's modifiers) brings its effector and pole or its controls. It checks a mode when every property has it, and skips bool properties.
 
 **Properties**
 - Gizmo mode and space.
@@ -775,7 +789,7 @@ During an interaction, only Escape (cancel) is handled.
 - **Key indicator:**
   - A diamond: hollow means animated, filled yellow means keyed at this frame, orange means edited but not keyed.
   - Click to set the key, or remove it.
-  - Right-click → Cyclic toggle.
+  - Right-click → Cyclic toggle, Bezier Mode ▸. The tooltip notes a Continuous track.
   - A small ring shows Cyclic: green when applied, orange when on but no key is inside the sequence.
 
 **Timeline** (custom drawn)
@@ -788,8 +802,8 @@ During an interaction, only Escape (cancel) is handled.
   - Click, Ctrl-click and Shift-click on keys select (replace, toggle, add). Dragging moves them; dragging empty space box-selects.
   - Wheel scrolls lanes, Shift+wheel or middle-drag pans, Ctrl+wheel zooms around the mouse.
 - **Right-click:**
-  - **Key area:** Cyclic ▸, Interpolation ▸, Copy/Paste/Delete, Set Loop Start/End at Playhead, Clear Loop Range.
-  - **Lane label:** Cyclic ▸ On/Off for that lane's properties.
+  - **Key area:** Cyclic ▸, Bezier Mode ▸, Interpolation ▸, Copy/Paste/Delete, Set Loop Start/End at Playhead, Clear Loop Range.
+  - **Lane label:** Cyclic ▸ On/Off and Bezier Mode ▸ for that lane's properties.
 - The loop range (`Timeline::GetLoopRange`) is UI state, passed to `Play()`.
 
 **History:** a list of commits. Click one to `JumpToHistory`; entries past the head are dimmed.
@@ -847,7 +861,7 @@ During an interaction, only Escape (cancel) is handled.
 
 ---
 
-## 4. File format (`.nafproject`, version 6)
+## 4. File format (`.nafproject`, version 7)
 
 Files live in `<Data path>/Projects/<name>.nafproject` (`Util::String::GetDataPath()`).
 
@@ -865,6 +879,7 @@ Files live in `<Data path>/Projects/<name>.nafproject` (`Util::String::GetDataPa
 - **Version policy:** newer versions are refused, and so are versions older than `kOldestReadableVersion`. Version 1 was the old Project/Clip format and version 2 predates scene-relative placement. Bump `kVersion` for any breaking change. Optional new JSON fields don't need a bump if the reader treats them as optional.
   - **Version 4** added object types (hands, spline IK), so older builds must refuse it. It's otherwise a superset of version 3, so version 3 files still read (`kOldestReadableVersion` = 3). Fields added in version 4 are optional on read, with the defaults a new object would have.
   - **Version 5** added each finger's `straighten` and `maxExtend`, which change what curl values mean, so older builds must refuse it rather than ignore them. Both are optional on read: a version 4 hand without them keeps curl 0 as its rest pose.
+  - **Version 7** added each sequence's `bezierModes`, which change the curves' shape, so older builds must refuse it. It's optional on read: without it every track is Local.
 
 ### 4.2 Binary key records
 
@@ -915,7 +930,8 @@ value: float 4 | bool 1 | Float3 12 | Quaternion 16 (xyzw)
     { "id": 1, "name": "Sequence 1", "frameRate": 30, "frameCount": 30, "loopSmoothing": false,
       "tracks": [ { "object": 1, "bone": "Pelvis", "property": "rotation",
                     "type": "quaternion", "offset": 0, "count": 4 } ],
-      "loopSmoothedProperties": [ { "object": 1, "bone": "Pelvis", "property": "rotation" } ] }
+      "loopSmoothedProperties": [ { "object": 1, "bone": "Pelvis", "property": "rotation" } ],
+      "bezierModes": [ { "object": 1, "bone": "Pelvis", "property": "rotation", "mode": "continuous" } ] }  // v7, optional; only non-Local
   ],
   "liveValues": [ { "object": 1, "bone": "Head", "property": "rotation", "value": [..4], "edited": true } ],
   "editor": { /* opaque, owned by StudioMenuEx */ }
@@ -923,7 +939,7 @@ value: float 4 | bool 1 | Float3 12 | Quaternion 16 (xyzw)
 ```
 
 - **Bones are referenced by name** everywhere, so a skeleton whose joints were reordered still loads.
-- **Hand finger properties** (in tracks, `loopSmoothedProperties` and `liveValues`) use `"finger": <index>` in place of `"bone"`.
+- **Hand finger properties** (in tracks, `loopSmoothedProperties`, `bezierModes` and `liveValues`) use `"finger": <index>` in place of `"bone"`.
 - **Binding hint:** stored as plugin plus local form ID, so it survives load-order changes. Light plugins (0xFE) mask to 0xFFF, others to 0xFFFFFF. Runtime forms (0xFF) store only `formId`.
 - **`liveValues`** holds only values that can't be recreated from defaults plus sampling:
   - edited properties, and
@@ -1101,6 +1117,6 @@ The bulk-edit and per-frame costs listed here before are fixed: the open transac
 - **Cutscene editor:** sequences are already swappable timeline sets. A cutscene would be an ordered list of sequence references plus camera tracks. Camera would be a new object type with transform properties, saved as a new `"type"`.
 - **Procedural graph drivers:** derive from `ModifierObject` (§2.10), add an `ObjectType`, and give it a `Build*` function for `ProjectEx` to record. A model-space modifier implements `GetWriteRoot` and `Solve`; the eval plan handles ordering and cycles. A local-space, additive one implements `ApplyToPose` instead, which runs before LocalToModel. Bones it fully owns go in `DrivesBone`, and the locators it owns in `GetLocators` and `Remap`. Non-keyable settings go in the `ModifierSettings` variant. Outside the model, modifier types are still named in the file format (`WriteObject`, `ReadObjectData`, `BuildObject` and the importer's checks), `RigOptions`, and the UI's per-type views (the properties panel, the outliner's listing and context menus, `GetElementProperties`).
 - **Furniture and props:** a new object type with a transform (like a locator) that can be bound to a reference, held through placement like actors.
-- **Manual tangents:** add a `TangentMode` value, skip it in `RegenerateTangents`, and serialize its tangents after the key value (with a version bump).
+- **Manual tangents:** add a `TangentMode` value, skip it in `RegenerateTangents`, and serialize its tangents after the key value (with a version bump). In Continuous mode, a manual key would be a fixed row: its velocity becomes a boundary condition for the runs on either side.
 - **Runtime keybinds:** replace the table in `GetActionChord` (`UI/Studio/Actions.cpp`).
 - **New saved properties:** extend `PropertyId`, `FindProperty`/`ForEachProperty`, `kPropertyNames`, and `GetValueIndex` in the importer.

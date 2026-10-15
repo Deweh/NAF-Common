@@ -505,6 +505,29 @@ namespace Animation::Studio
 		return info;
 	}
 
+	bool ProjectEx::SetBezierMode(std::span<const PropertyRef> a_refs, BezierMode a_mode)
+	{
+		const auto sequence = GetActiveSequence();
+		if (!sequence) return false;
+		TransactionScope transaction(*this, a_mode == BezierMode::kContinuous ? "Set Bezier mode to continuous" : "Set Bezier mode to local");
+		bool changed = false;
+		for (const auto& ref : a_refs) {
+			const auto property = FindProperty(ref);
+			if (std::holds_alternative<std::monostate>(property) || std::holds_alternative<Property<bool>*>(property)) continue;
+			const auto current = sequence->GetBezierMode(ref);
+			if (current == a_mode) continue;
+			Record(BezierModeChange{ sequence->id, ref, current, a_mode });
+			changed = true;
+		}
+		return changed;
+	}
+
+	ProjectEx::BezierMode ProjectEx::GetBezierMode(const PropertyRef& a_ref) const
+	{
+		const auto sequence = GetActiveSequence();
+		return sequence ? sequence->GetBezierMode(a_ref) : BezierMode::kLocal;
+	}
+
 	size_t ProjectEx::CountUnkeyedEdits() const
 	{
 		const auto sequence = GetActiveSequence();

@@ -229,6 +229,7 @@ namespace UI::Studio
 				if (ImGui::MenuItem("Unmask Hierarchy")) m_project->SetBoneMasked(hierarchy, false);
 				ImGui::EndMenu();
 			}
+			DrawBezierModeMenu();
 			if (ImGui::MenuItem("Select Hierarchy")) {
 				const auto parents = m_project->GetSkeleton(a_element.object)->joint_parents();
 				for (int32_t joint = 0; joint < static_cast<int32_t>(parents.size()); ++joint) {
@@ -256,6 +257,7 @@ namespace UI::Studio
 			if (ImGui::MenuItem("Reset Pose")) m_session.ResetTransforms(std::span{ &a_element, 1 });
 			if (ImGui::MenuItem("Reset Bone Display")) m_session.ResetBoneDisplay(a_element.object);
 			if (ImGui::MenuItem("Reset Bone Mask")) m_project->ResetBoneMask(a_element.object);
+			DrawBezierModeMenu();
 			ImGui::Separator();
 			{
 				const bool bound = m_project->GetBoundActor(a_element.object) != nullptr;
@@ -274,6 +276,7 @@ namespace UI::Studio
 					m_session.properties.DrawShoulderMenu(a_element.object);
 					ImGui::EndMenu();
 				}
+				DrawBezierModeMenu();
 				if (const auto chain = m_project->GetIKChain(a_element.object)) {
 					ImGui::Separator();
 					if (ImGui::MenuItem("Select Effector")) m_session.Select({ chain->effector, ProjectEx::kSelf }, SelectMode::kReplace);
@@ -288,6 +291,7 @@ namespace UI::Studio
 				const ProjectEx::PropertyRef enabledRef{ a_element.object, ProjectEx::kSelf, ProjectEx::PropertyId::kEnabled };
 				const bool enabled = m_project->GetValue<bool>(enabledRef).value_or(false);
 				if (ImGui::MenuItem("Enabled", nullptr, enabled)) m_session.ApplyFieldValue(enabledRef, !enabled);
+				DrawBezierModeMenu();
 				ImGui::Separator();
 				if (ImGui::BeginMenu("Presets")) {
 					m_session.properties.DrawHandPresetMenu(a_element.object);
@@ -334,6 +338,7 @@ namespace UI::Studio
 				const ProjectEx::PropertyRef enabledRef{ a_element.object, ProjectEx::kSelf, ProjectEx::PropertyId::kEnabled };
 				const bool enabled = m_project->GetValue<bool>(enabledRef).value_or(false);
 				if (ImGui::MenuItem("Enabled", nullptr, enabled)) m_session.ApplyFieldValue(enabledRef, !enabled);
+				DrawBezierModeMenu();
 				if (const auto spline = m_project->GetSplineIK(a_element.object)) {
 					ImGui::Separator();
 					if (ImGui::MenuItem("Select Controls")) {
@@ -354,6 +359,7 @@ namespace UI::Studio
 			m_session.ActionMenuItem(Action::kInsertKey);
 			if (ImGui::MenuItem("Reset Transform")) m_session.ResetTransforms(m_session.selection);
 			if (ImGui::MenuItem("Set Current as Default")) m_session.SetLocatorDefaults(m_session.selection);
+			DrawBezierModeMenu();
 			remove();
 			break;
 		}
@@ -392,6 +398,44 @@ namespace UI::Studio
 				ImGui::PopID();
 			}
 		}
+	}
+
+	void Outliner::DrawBezierModeMenu()
+	{
+		std::vector<ProjectEx::PropertyRef> properties;
+		const auto add = [&](ProjectEx::ElementRef a_element) {
+			const auto elementProperties = m_session.GetElementProperties(a_element);
+			properties.insert(properties.end(), elementProperties.begin(), elementProperties.end());
+		};
+		const auto addModifier = [&](ProjectEx::ObjectId a_modifier) {
+			add({ a_modifier, ProjectEx::kSelf });
+			if (const auto chain = m_project->GetIKChain(a_modifier)) {
+				add({ chain->effector, ProjectEx::kSelf });
+				add({ chain->pole, ProjectEx::kSelf });
+			} else if (const auto spline = m_project->GetSplineIK(a_modifier)) {
+				for (const auto control : spline->controls) add({ control, ProjectEx::kSelf });
+			}
+		};
+		for (const auto& element : m_session.selection) {
+			const auto type = m_project->GetObjectType(element.object);
+			if (!type || m_session.IsBone(element) || *type == ProjectEx::ObjectType::kLocator) {
+				add(element);
+			} else if (*type == ProjectEx::ObjectType::kActor) {
+				add(element);
+				for (const auto modifier : m_project->GetModifiers(element.object)) addModifier(modifier);
+			} else {
+				addModifier(element.object);
+			}
+		}
+		std::ranges::sort(properties);
+		properties.erase(std::ranges::unique(properties).begin(), properties.end());
+
+		std::vector<ProjectEx::PropertyRef> hierarchy;
+		for (const auto& bone : m_session.GetSelectedBones(true)) {
+			const auto boneProperties = m_session.GetElementProperties(bone);
+			hierarchy.insert(hierarchy.end(), boneProperties.begin(), boneProperties.end());
+		}
+		m_session.DrawBezierModeMenu(properties, hierarchy);
 	}
 
 	void Outliner::DrawBoneDisplayMenu()

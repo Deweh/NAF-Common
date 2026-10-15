@@ -188,6 +188,10 @@ namespace UI::Studio
 		[[nodiscard]] std::optional<ozz::math::Float4x4> GetSpawnTransform();
 		// The previous binding, the console selection, nearby actors, or a form ID popup. Shared by every actor menu.
 		void DrawActorSourceMenu(const std::function<void(RE::Actor*)>& a_onPick, Popup a_formIdPopup, ProjectEx::ObjectId a_target);
+		// A "Bezier Mode" submenu for a_properties' tracks in the active sequence. A mode is checked when every property
+		// has it. a_hierarchy, when given, adds items that set the mode for those properties instead (a bone and its
+		// descendants). Shared by the key indicator, timeline and outliner menus.
+		void DrawBezierModeMenu(std::span<const ProjectEx::PropertyRef> a_properties, std::span<const ProjectEx::PropertyRef> a_hierarchy = {});
 
 		// ---- Editor settings ----
 		// The project file's "editor" section: UI preferences that belong to the project. Each panel reads and writes

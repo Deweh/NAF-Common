@@ -57,6 +57,7 @@ namespace Animation::Studio
 		size_t modifierIndex{ 0 };             // Position in the owning actor's modifiers, for modifier objects.
 		std::vector<std::tuple<SequenceId, PropertyRef, Track>> tracks;
 		std::vector<std::pair<SequenceId, PropertyRef>> loopSmoothedProperties;
+		std::vector<std::tuple<SequenceId, PropertyRef, BezierMode>> bezierModes;
 	};
 
 	struct ObjectLifetimeChange
@@ -124,6 +125,14 @@ namespace Animation::Studio
 		bool after{ false };
 	};
 
+	struct BezierModeChange
+	{
+		SequenceId sequence{ kNoSequence };
+		PropertyRef property;
+		BezierMode before{ BezierMode::kLocal };
+		BezierMode after{ BezierMode::kLocal };
+	};
+
 	struct ActorPlacementChange
 	{
 		ObjectId id{ kNoObject };
@@ -147,7 +156,7 @@ namespace Animation::Studio
 
 	using Change = std::variant<KeyChange, LiveValueChange, FrameChange, ActiveSequenceChange, ObjectLifetimeChange, SequenceLifetimeChange,
 		SequenceSettingsChange, ObjectRenameChange, LocatorParentChange, ActorBindingChange, LoopSmoothingChange, ActorPlacementChange,
-		ModifierSettingsChange, LocatorDefaultsChange, BoneMaskChange>;
+		ModifierSettingsChange, LocatorDefaultsChange, BoneMaskChange, BezierModeChange>;
 
 	struct Commit
 	{

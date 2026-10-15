@@ -325,4 +325,41 @@ namespace UI::Studio
 		}
 		if (ImGui::MenuItem("By Form ID...")) RequestPopup({ a_formIdPopup, a_target });
 	}
+
+	void StudioSession::DrawBezierModeMenu(std::span<const ProjectEx::PropertyRef> a_properties, std::span<const ProjectEx::PropertyRef> a_hierarchy)
+	{
+		// Bool properties are always Step, so the mode doesn't apply to them.
+		const auto filter = [&](std::span<const ProjectEx::PropertyRef> a_refs) {
+			std::vector<ProjectEx::PropertyRef> result;
+			for (const auto& ref : a_refs) {
+				const auto value = m_project->GetValue(ref);
+				if (value && !std::holds_alternative<bool>(*value)) result.push_back(ref);
+			}
+			return result;
+		};
+		const auto properties = filter(a_properties);
+		const auto hierarchy = filter(a_hierarchy);
+		if (!ImGui::BeginMenu("Bezier Mode", !properties.empty() || !hierarchy.empty())) return;
+
+		constexpr std::array kModes{ ProjectEx::BezierMode::kLocal, ProjectEx::BezierMode::kContinuous };
+		const auto tooltip = [](ProjectEx::BezierMode a_mode) {
+			if (!ImGui::IsItemHovered()) return;
+			ImGui::SetTooltip(a_mode == ProjectEx::BezierMode::kLocal ?
+								  "Each Bezier key's tangent comes from its neighboring keys." :
+								  "Acceleration stays smooth through every Bezier key, and keying a frame on the curve doesn't change it.\nMoving a key also adjusts the curve a little past its neighbors.");
+		};
+		for (const auto mode : kModes) {
+			const bool all = !properties.empty() && std::ranges::all_of(properties, [&](const ProjectEx::PropertyRef& a_ref) { return m_project->GetBezierMode(a_ref) == mode; });
+			if (ImGui::MenuItem(GetBezierModeName(mode), nullptr, all, !properties.empty())) m_project->SetBezierMode(properties, mode);
+			tooltip(mode);
+		}
+		if (!hierarchy.empty()) {
+			ImGui::Separator();
+			for (const auto mode : kModes) {
+				if (ImGui::MenuItem(std::format("{} (Hierarchy)", GetBezierModeName(mode)).c_str())) m_project->SetBezierMode(hierarchy, mode);
+				tooltip(mode);
+			}
+		}
+		ImGui::EndMenu();
+	}
 }

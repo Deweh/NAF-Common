@@ -316,6 +316,12 @@ namespace Serialization
 				}
 				auto& smoothed = item["loopSmoothedProperties"] = json::array();
 				for (const auto& ref : sequence.loopSmoothedProperties) smoothed.push_back(propertyJson(ref));
+				auto& bezierModes = item["bezierModes"] = json::array();
+				for (const auto& [ref, mode] : sequence.bezierModes) {
+					auto entry = propertyJson(ref);
+					entry["mode"] = Format::kBezierModeNames[static_cast<size_t>(mode)];
+					bezierModes.push_back(std::move(entry));
+				}
 				sequences.push_back(std::move(item));
 			}
 

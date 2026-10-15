@@ -39,6 +39,7 @@ namespace Animation::Studio
 		using PropertyId = Studio::PropertyId;
 		using Interpolation = Studio::Interpolation;
 		using TangentMode = Studio::TangentMode;
+		using BezierMode = Studio::BezierMode;
 		using PropertyRef = Studio::PropertyRef;
 		using KeyRef = Studio::KeyRef;
 		using ElementRef = Studio::ElementRef;
@@ -276,6 +277,9 @@ namespace Animation::Studio
 		// Per-property setting. Independent of the sequence-wide one, which overrides it while on.
 		bool SetLoopSmoothing(std::span<const PropertyRef> a_refs, bool a_enabled);
 		[[nodiscard]] LoopSmoothingInfo GetLoopSmoothing(const PropertyRef& a_ref) const;
+		// Per-property setting in the active sequence. Bool properties are always Step, so they're skipped.
+		bool SetBezierMode(std::span<const PropertyRef> a_refs, BezierMode a_mode);
+		[[nodiscard]] BezierMode GetBezierMode(const PropertyRef& a_ref) const;
 		// Edited live values of tracked properties. Sampling (playback, a frame change, baking) overwrites them.
 		[[nodiscard]] size_t CountUnkeyedEdits() const;
 
@@ -390,6 +394,7 @@ namespace Animation::Studio
 		void ApplyChange(LocatorDefaultsChange& a_change, bool a_forward);
 		void ApplyChange(ActorBindingChange& a_change, bool a_forward);
 		void ApplyChange(LoopSmoothingChange& a_change, bool a_forward);
+		void ApplyChange(BezierModeChange& a_change, bool a_forward);
 		void ApplyChange(ActorPlacementChange& a_change, bool a_forward);
 		void ApplyChange(ModifierSettingsChange& a_change, bool a_forward);
 		void ApplyChange(BoneMaskChange& a_change, bool a_forward);

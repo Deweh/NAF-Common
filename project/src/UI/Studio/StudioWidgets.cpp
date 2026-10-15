@@ -38,6 +38,17 @@ namespace UI::Studio
 		return "";
 	}
 
+	const char* GetBezierModeName(ProjectEx::BezierMode a_mode)
+	{
+		switch (a_mode) {
+		case ProjectEx::BezierMode::kLocal:
+			return "Local";
+		case ProjectEx::BezierMode::kContinuous:
+			return "Continuous";
+		}
+		return "";
+	}
+
 	const char* GetPropertyName(ProjectEx::PropertyId a_property)
 	{
 		switch (a_property) {

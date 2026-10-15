@@ -54,6 +54,7 @@ namespace Serialization
 			bool loopSmoothing{ false };
 			std::vector<FileTrack> tracks;
 			std::vector<FileProperty> loopSmoothedProperties;
+			std::vector<std::pair<FileProperty, ProjectEx::BezierMode>> bezierModes;  // Version 7.
 		};
 
 		struct FileLiveValue
@@ -801,6 +802,14 @@ namespace Serialization
 				for (const Element smoothed : ReadArray(Field(item, "loopSmoothedProperties"), "loopSmoothedProperties")) {
 					sequence.loopSmoothedProperties.push_back(readProperty(smoothed).first);
 				}
+				if (const auto bezierModes = OptionalField(item, "bezierModes")) {
+					for (const Element entry : ReadArray(*bezierModes, "bezierModes")) {
+						auto [property, valueIndex] = readProperty(entry);
+						const auto mode = static_cast<ProjectEx::BezierMode>(FindName(Format::kBezierModeNames, ReadString(Field(entry, "mode"), "mode"), "Bezier mode"));
+						// Bool properties are always Step.
+						if (valueIndex != 1) sequence.bezierModes.emplace_back(std::move(property), mode);
+					}
+				}
 				file->sequences.push_back(std::move(sequence));
 			}
 			if (file->sequences.empty()) Fail("The project has no sequences.");
@@ -971,6 +980,10 @@ namespace Serialization
 			size_t ignored = 0;
 			for (const auto& property : data.loopSmoothedProperties) {
 				if (const auto ref = resolveProperty(property, ignored)) sequence.loopSmoothedProperties.insert(*ref);
+			}
+			for (const auto& [property, mode] : data.bezierModes) {
+				const auto ref = resolveProperty(property, ignored);
+				if (ref && mode != ProjectEx::BezierMode::kLocal) sequence.bezierModes.insert_or_assign(*ref, mode);
 			}
 			project->m_sequences.push_back(std::move(sequence));
 		}

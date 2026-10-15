@@ -308,6 +308,7 @@ namespace UI::Studio
 
 		if (ImGui::BeginPopup(kLaneContextPopup)) {
 			loopSmoothingMenu(m_contextLaneProperties);
+			m_session.DrawBezierModeMenu(m_contextLaneProperties);
 			ImGui::EndPopup();
 		}
 
@@ -318,6 +319,7 @@ namespace UI::Studio
 			if (keyProperties.empty() || keyProperties.back() != key.property) keyProperties.push_back(key.property);
 		}
 		loopSmoothingMenu(keyProperties);
+		m_session.DrawBezierModeMenu(keyProperties);
 		if (ImGui::BeginMenu("Interpolation", hasKeys)) {
 			for (const auto interpolation : { ProjectEx::Interpolation::kLinear, ProjectEx::Interpolation::kBezier, ProjectEx::Interpolation::kStep }) {
 				if (ImGui::MenuItem(GetInterpolationName(interpolation))) {

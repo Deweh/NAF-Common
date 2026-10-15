@@ -405,13 +405,15 @@ namespace UI::Studio
 
 		if (ImGui::IsItemHovered()) {
 			const char* loopText = !loopEnabled ? "" : loop.applied ? "\nCyclic." : "\nCyclic, but has no keys inside the sequence.";
-			ImGui::SetTooltip("%s%s\nClick to %s a key at this frame. Right-click for options.",
+			const char* bezierText = m_project->GetBezierMode(a_property) == ProjectEx::BezierMode::kContinuous ? "\nBezier mode: Continuous." : "";
+			ImGui::SetTooltip("%s%s%s\nClick to %s a key at this frame. Right-click for options.",
 				edited ? "Changed but not keyed." : keyedHere ? "Keyed at this frame." : frames.empty() ? "Not animated." : "Animated.",
-				loopText, keyedHere && !edited ? "remove" : "set");
+				loopText, bezierText, keyedHere && !edited ? "remove" : "set");
 		}
 		if (ImGui::BeginPopupContextItem("##key_options")) {
 			if (ImGui::MenuItem("Cyclic", nullptr, loop.property)) m_project->SetLoopSmoothing(std::span{ &a_property, 1 }, !loop.property);
 			if (loop.sequence) ImGui::TextDisabled("Also on for the whole sequence.");
+			m_session.DrawBezierModeMenu(std::span{ &a_property, 1 });
 			ImGui::EndPopup();
 		}
 		ImGui::PopID();

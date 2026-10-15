@@ -23,6 +23,12 @@ namespace Animation::Studio
 		return enabled ? std::optional{ frameCount } : std::nullopt;
 	}
 
+	BezierMode Sequence::GetBezierMode(const PropertyRef& a_ref) const
+	{
+		const auto iter = bezierModes.find(a_ref);
+		return iter != bezierModes.end() ? iter->second : BezierMode::kLocal;
+	}
+
 	Track* Sequence::FindTrack(const PropertyRef& a_ref)
 	{
 		const auto iter = tracks.find(a_ref);
@@ -51,21 +57,21 @@ namespace Animation::Studio
 		auto track = tracks.find(a_ref);
 		if (!a_key) {
 			if (track == tracks.end()) return;
-			track->second.WriteKey(a_frame, std::nullopt, GetLoopFrameCount(a_ref));
+			track->second.WriteKey(a_frame, std::nullopt, GetLoopFrameCount(a_ref), GetBezierMode(a_ref));
 			if (track->second.IsEmpty()) tracks.erase(track);
 			return;
 		}
 		if (track == tracks.end()) track = tracks.emplace(a_ref, MakeEmptyTrack(*a_key)).first;
-		track->second.WriteKey(a_frame, a_key, GetLoopFrameCount(a_ref));
+		track->second.WriteKey(a_frame, a_key, GetLoopFrameCount(a_ref), GetBezierMode(a_ref));
 	}
 
 	void Sequence::RegenerateTangents(const PropertyRef& a_ref)
 	{
-		if (const auto track = FindTrack(a_ref)) track->RegenerateTangents(GetLoopFrameCount(a_ref));
+		if (const auto track = FindTrack(a_ref)) track->RegenerateTangents(GetLoopFrameCount(a_ref), GetBezierMode(a_ref));
 	}
 
 	void Sequence::RegenerateTangents()
 	{
-		for (auto& [ref, track] : tracks) track.RegenerateTangents(GetLoopFrameCount(ref));
+		for (auto& [ref, track] : tracks) track.RegenerateTangents(GetLoopFrameCount(ref), GetBezierMode(ref));
 	}
 }

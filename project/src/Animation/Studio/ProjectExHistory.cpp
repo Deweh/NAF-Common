@@ -165,6 +165,23 @@ namespace Animation::Studio
 		}
 	}
 
+	void ProjectEx::ApplyChange(BezierModeChange& a_change, bool a_forward)
+	{
+		const auto sequence = FindSequence(a_change.sequence);
+		if (!sequence) return;
+		const auto mode = a_forward ? a_change.after : a_change.before;
+		if (mode != BezierMode::kLocal) sequence->bezierModes.insert_or_assign(a_change.property, mode);
+		else sequence->bezierModes.erase(a_change.property);
+
+		const auto track = sequence->FindTrack(a_change.property);
+		if (!track) return;
+		sequence->RegenerateTangents(a_change.property);
+		if (sequence->id == m_activeSequence) {
+			const auto property = FindProperty(a_change.property);
+			if (!Studio::IsEdited(property)) SetLiveValue(property, sequence->Sample(a_change.property, *track, GetSampleFrame()), false);
+		}
+	}
+
 	void ProjectEx::ApplyChange(ModifierSettingsChange& a_change, bool a_forward)
 	{
 		if (const auto modifier = m_objects.FindModifier(a_change.id)) modifier->SetSettings(a_forward ? a_change.after : a_change.before);
@@ -198,6 +215,10 @@ namespace Animation::Studio
 			if (const auto sequence = FindSequence(sequenceId)) sequence->loopSmoothedProperties.insert(ref);
 		}
 		a_snapshot.loopSmoothedProperties.clear();
+		for (const auto& [sequenceId, ref, mode] : a_snapshot.bezierModes) {
+			if (const auto sequence = FindSequence(sequenceId)) sequence->bezierModes.insert_or_assign(ref, mode);
+		}
+		a_snapshot.bezierModes.clear();
 
 		auto& object = *a_snapshot.object;
 		switch (object.GetType()) {
@@ -231,6 +252,7 @@ namespace Animation::Studio
 		// Tracks are ordered by object first, so each sequence's tracks for this object form one contiguous range.
 		a_snapshot.tracks.clear();
 		a_snapshot.loopSmoothedProperties.clear();
+		a_snapshot.bezierModes.clear();
 		const PropertyRef rangeStart{ a_snapshot.id, 0, PropertyId::kTranslation };
 		const PropertyRef rangeEnd{ a_snapshot.id + 1, 0, PropertyId::kTranslation };
 		for (auto& sequence : m_sequences) {
@@ -247,6 +269,13 @@ namespace Animation::Studio
 				a_snapshot.loopSmoothedProperties.emplace_back(sequence.id, *smoothed);
 			}
 			sequence.loopSmoothedProperties.erase(firstSmoothed, lastSmoothed);
+
+			const auto firstMode = sequence.bezierModes.lower_bound(rangeStart);
+			const auto lastMode = sequence.bezierModes.lower_bound(rangeEnd);
+			for (auto mode = firstMode; mode != lastMode; ++mode) {
+				a_snapshot.bezierModes.emplace_back(sequence.id, mode->first, mode->second);
+			}
+			sequence.bezierModes.erase(firstMode, lastMode);
 		}
 
 		auto& object = *found;

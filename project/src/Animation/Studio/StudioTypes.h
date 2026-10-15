@@ -52,6 +52,15 @@ namespace Animation::Studio
 		kAuto
 	};
 
+	// How a track's auto tangents are generated for its Bezier keys. Local takes each key's velocity from its
+	// neighbors. Continuous solves the whole curve so acceleration is also continuous through each key, which keeps
+	// an in-between key placed on the curve from changing it.
+	enum class BezierMode : uint8_t
+	{
+		kLocal,
+		kContinuous
+	};
+
 	// Addresses a single animatable property. Tracks, history and the UI all refer to properties this way.
 	struct PropertyRef
 	{

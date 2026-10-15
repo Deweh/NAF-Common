@@ -23,6 +23,9 @@ namespace UI::Studio
 		void DrawElementContextMenu(ProjectEx::ElementRef a_element);
 		void DrawBoneDisplayMenu();
 		void DrawParentMenu(ProjectEx::ObjectId a_locator);
+		// Bezier Mode for every selected element's properties. An actor brings its modifiers, and a modifier its
+		// effector, pole or controls. Bones also get hierarchy items.
+		void DrawBezierModeMenu();
 
 		StudioSession& m_session;
 		ProjectEx* m_project;

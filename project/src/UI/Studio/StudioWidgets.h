@@ -68,6 +68,7 @@ namespace UI::Studio
 	// ---- Names ----
 
 	const char* GetInterpolationName(ProjectEx::Interpolation a_interpolation);
+	const char* GetBezierModeName(ProjectEx::BezierMode a_mode);
 	const char* GetPropertyName(ProjectEx::PropertyId a_property);
 	// A hand's finger properties carry their finger's name; the hand's own Curl is the whole fist.
 	std::string GetPropertyLabel(const ProjectEx& a_project, const ProjectEx::PropertyRef& a_property);

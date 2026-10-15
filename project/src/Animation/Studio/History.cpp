@@ -141,6 +141,7 @@ namespace Animation::Studio
 		if (const auto parent = std::get_if<LocatorParentChange>(&a_change)) return parent->before == parent->after;
 		if (const auto defaults = std::get_if<LocatorDefaultsChange>(&a_change)) return defaults->before == defaults->after;
 		if (const auto loop = std::get_if<LoopSmoothingChange>(&a_change)) return loop->before == loop->after;
+		if (const auto bezier = std::get_if<BezierModeChange>(&a_change)) return bezier->before == bezier->after;
 		if (const auto placement = std::get_if<ActorPlacementChange>(&a_change)) return placement->before == placement->after;
 		if (const auto settings = std::get_if<ModifierSettingsChange>(&a_change)) return settings->before == settings->after;
 		if (const auto mask = std::get_if<BoneMaskChange>(&a_change)) return mask->before == mask->after;

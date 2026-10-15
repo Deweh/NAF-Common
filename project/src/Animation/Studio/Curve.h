@@ -22,7 +22,7 @@ namespace Animation::Studio
 
 		// Before the first key or after the last, the value clamps, unless the curve is cyclic.
 		[[nodiscard]] Value Sample(float a_frame, std::optional<int32_t> a_loopFrameCount) const;
-		void RegenerateTangents(std::optional<int32_t> a_loopFrameCount);
+		void RegenerateTangents(std::optional<int32_t> a_loopFrameCount, BezierMode a_bezierMode);
 		// Whether a cyclic curve has a key in [0, frameCount], which it needs to be applied.
 		[[nodiscard]] bool HasLoopRange(int32_t a_frameCount) const;
 
@@ -31,8 +31,8 @@ namespace Animation::Studio
 		[[nodiscard]] std::vector<int32_t> GetKeyFrames() const;
 		[[nodiscard]] std::optional<AnyKey> GetKey(int32_t a_frame) const;
 		// Writes a_key at a_frame (whatever frame the key holds), or erases the key there when a_key is empty, then
-		// regenerates tangents. A key of the wrong type is ignored.
-		void WriteKey(int32_t a_frame, const std::optional<AnyKey>& a_key, std::optional<int32_t> a_loopFrameCount);
+		// regenerates tangents. A key of the wrong type is ignored. In Continuous mode a write re-solves the whole curve.
+		void WriteKey(int32_t a_frame, const std::optional<AnyKey>& a_key, std::optional<int32_t> a_loopFrameCount, BezierMode a_bezierMode);
 	};
 
 	// A track of a_key's type, without keys.
