@@ -2,6 +2,7 @@
 #include "Util/Game.h"
 
 #include "UI/Studio/StudioCamera.h"
+#include "Animation/Studio/GameBridge.h"
 #include "Animation/Studio/StudioMath.h"
 
 namespace UI::Studio
@@ -224,7 +225,20 @@ namespace UI::Studio
 		}
 		Select({ *result, ProjectEx::kSelf }, SelectMode::kReplace);
 		reveal = selection.back();
-		SetStatus(std::format("Added {}.", m_project->GetObjectName(*result)));
+
+		// Hide the skeleton's bones this actor doesn't have, so only its own bones show.
+		std::vector<ProjectEx::ElementRef> missing;
+		if (const auto skeleton = m_project->GetSkeleton(*result)) {
+			const auto present = Animation::Studio::GetJointsPresentOnActor(a_actor, *skeleton);
+			for (size_t i = 0; i < present.size(); ++i) {
+				if (!present[i])
+					missing.push_back({ *result, static_cast<uint16_t>(i) });
+			}
+		}
+		SetBoneDisplay(missing, false, std::nullopt);
+
+		const auto name = m_project->GetObjectName(*result);
+		SetStatus(missing.empty() ? std::format("Added {}.", name) : std::format("Added {}; hid {} bones it doesn't have.", name, missing.size()));
 	}
 
 	void StudioSession::BindActor(ProjectEx::ObjectId a_slot, RE::Actor* a_actor)

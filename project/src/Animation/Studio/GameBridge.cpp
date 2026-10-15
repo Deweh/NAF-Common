@@ -5,6 +5,7 @@
 #include "Animation/Generator.h"
 #include "Animation/GraphManager.h"
 #include "Settings/Settings.h"
+#include "Util/Game.h"
 #include "Util/String.h"
 
 namespace Animation::Studio
@@ -64,6 +65,18 @@ namespace Animation::Studio
 	{
 		if (const char* name = a_actor->GetDisplayFullName(); name && name[0] != '\0') return name;
 		return std::format("Actor [{:08X}]", a_actor->GetFormID());
+	}
+
+	std::vector<bool> GetJointsPresentOnActor(RE::Actor* a_actor, const ozz::animation::Skeleton& a_skeleton)
+	{
+		std::vector<bool> result;
+		const auto root = a_actor ? Util::Game::Get3D(a_actor) : nullptr;
+		if (!root)
+			return result;
+		result.reserve(a_skeleton.num_joints());
+		for (const auto name : a_skeleton.joint_names())
+			result.push_back(root->GetObjectByName(RE::BSFixedString(name)) != nullptr);
+		return result;
 	}
 
 	std::expected<void, std::string> CheckActorCompatibility(std::string_view a_skeletonId, RE::SEX a_gender, RE::Actor* a_actor)

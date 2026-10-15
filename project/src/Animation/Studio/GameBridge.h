@@ -16,6 +16,8 @@ namespace Animation::Studio
 	[[nodiscard]] std::shared_ptr<const OzzSkeleton> GetActorSkeleton(RE::Actor* a_actor);
 	[[nodiscard]] std::string GetActorSkeletonId(RE::Actor* a_actor);
 	[[nodiscard]] std::string GetActorDisplayName(RE::Actor* a_actor);
+	// Per joint of a_skeleton, whether the actor's loaded 3D has a node of that name. Empty when the actor has no 3D.
+	[[nodiscard]] std::vector<bool> GetJointsPresentOnActor(RE::Actor* a_actor, const ozz::animation::Skeleton& a_skeleton);
 	// Whether an actor meets a slot's requirements: the skeleton id (case-insensitive) and, unless kNone, the gender.
 	[[nodiscard]] std::expected<void, std::string> CheckActorCompatibility(std::string_view a_skeletonId, RE::SEX a_gender, RE::Actor* a_actor);
 
