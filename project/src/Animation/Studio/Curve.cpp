@@ -190,8 +190,7 @@ namespace Animation::Studio
 		// A C2 cubic spline: the velocities of a curve's Bezier keys are solved together, so acceleration matches on
 		// both sides of each key. Values are worked as Float3 and solved one component at a time: floats use x, and
 		// quaternions use the world-space angular velocity in QuaternionLog units, which makes the rotation system linear
-		// to first order. Per component, a path keyed at its extremes (a circle keyed at four points) holds only the
-		// component that turns at each key, as auto-clamped handles do.
+		// to first order. Per component, a hold in one component (a path that keeps its height) doesn't stop the others.
 
 		// One row of the tridiagonal system: a * m[i - 1] + b * m[i] + c * m[i + 1] = d, for velocities m. The default
 		// row is fixed: it pins the velocity to d.
@@ -365,8 +364,10 @@ namespace Animation::Studio
 						auto& row = rows[i];
 						row = {};
 						if (isBezier(previous) && isBezier(next)) {
-							// Where the value turns back or holds, the key stays still (the row's default).
-							if (slope(previous) * slope(next) <= 0.0f) continue;
+							// Next to a hold (an equal neighbor), the key stays still (the row's default). An extreme stays
+							// free: holding it would break the acceleration there, so the curve may overshoot it slightly.
+							// Duplicating the extreme key makes a hold, for a key that must stay the extreme.
+							if (slope(previous) == 0.0f || slope(next) == 0.0f) continue;
 							row.a = 1.0f / previous->length;
 							row.c = 1.0f / next->length;
 							row.b = 2.0f * (row.a + row.c);
@@ -394,8 +395,8 @@ namespace Animation::Studio
 						}
 					}
 
-					// A velocity against an adjacent Bezier segment's direction overshoots the key. Hold that key still
-					// instead and solve again. Each pass fixes at least one more row, so this ends.
+					// Where the value runs one way through a key, a velocity against it turns the curve back between keys.
+					// Hold that key still instead and solve again. Each pass fixes at least one more row, so this ends.
 					for (size_t pass = 0; pass <= count; ++pass) {
 						SolveSplineRows(rows, cyclic, solved);
 						bool held = false;
@@ -403,6 +404,7 @@ namespace Animation::Studio
 							if (!rows[i].free) continue;
 							const auto previous = previousSegment(i);
 							const auto next = nextSegment(i);
+							if (isBezier(previous) && isBezier(next) && slope(previous) * slope(next) < 0.0f) continue;  // An extreme.
 							if ((isBezier(previous) && solved[i] * slope(previous) < 0.0f) || (isBezier(next) && solved[i] * slope(next) < 0.0f)) {
 								rows[i] = {};
 								held = true;
