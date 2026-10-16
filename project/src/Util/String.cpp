@@ -1,5 +1,7 @@
 #include "String.h"
+#if defined TARGET_GAME_SF
 #include "REX/FModule.h"
+#endif
 
 namespace Util
 {

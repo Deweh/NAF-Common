@@ -203,39 +203,100 @@ namespace RE
 	class BSGeometry;
 	class BSFaceGenNiNode;
 
-	class BSFaceGenAnimationData
+	// An NiExtraData named "FAD" (vtable 427138, ctor 69513, dtor 69514, size 0x3D0), held by BSFaceGenNiNode+0x180.
+	// Update (69533) is called once per frame by the face-gen node's update (69580, call at +0x179), which only re-applies
+	// the morphs to the geometry when Update returns true (or node flag 0x100 is set). Update, under lipSyncLock:
+	//  1. blinks (69530): writes finalExpression[25/26] (eyeClosedL/R),
+	//  2. clears speechExpression[0..100] and fills it from the FaceFX lip-sync tracks,
+	//  3. applies the equipment flags (69535): [101..103] of both arrays, and bit 2 forces speechExpression[25/26] to 1,
+	//  4. when anything changed, finalExpression[0..100] = clamp(speechExpression, -1, 1),
+	//  5. final[25/26] = min(max(speech, blink), fFGBlinkClosedValue); final[27/28/31/32] += the eyeOffset* fields,
+	//  6. rebuilds the corrective (combination) morphs from the other final values:
+	//     [10..17] c_eye<Dir>_eyeClosedL/R = max(final Look<Dir> [97..100], lid-follow weight) * final eyeClosedL/R,
+	//              lid-follow weight = clamp(eyeOffset<Dir> / fLidsFollowingEyes<Dir>Mult * 2.5, 0, 1),
+	//     [18/19]  c_eyesClosed50L/R = triangle of eyeClosedL/R peaking at 0.5 (2v below 0.5, 2 - 2v above),
+	//     [21/22]  c_squintL/R_cheekRaiserL/R = squintL/R [76/77] * cheekRaiseL/R [4/5].
+	// So [10..19] and [21/22] are overwritten from the other morphs every update that runs step 4.
+	// Morph names are the 104-entry table at ID 930506 ({BSFixedString, bool} each).
+	class BSFaceGenAnimationData : public NiRefObject
 	{
 	public:
-		virtual ~BSFaceGenAnimationData() = default;
+		enum BlinkState : std::uint32_t
+		{
+			kPreBlink,   // counting blinkTimer down to the next blink
+			kBlinkDown,  // fBlinkDownTime
+			kBlinkHold,  // fBlinkHoldTime
+			kBlinkUp,    // fBlinkUpTime
+			kReset,      // picks a new blink delay, back to kPreBlink
+			// 5 and 6: eyes held closed while skipUpdate is set, 6 -> 5 when the timer runs out.
+		};
 
-		void* unk08;
-		void* unk10;
-		float finalExpression[FACE_MORPHS_SIZE];
-		float expression2[FACE_MORPHS_SIZE];
-		void* unk358;
-		void* unk360;
-		void* unk368;
-		void* unk370;
-		float unk378;
-		uint32_t unk37C;
-		void* unk380;
-		void* unk388;
-		void* unk390;
-		void* unk398;
-		void* unk3A0;
-		BSFixedString animFaceArchetype;
-		uint32_t unk3B0;
-		uint32_t unk3B4;
-		void* facefx_actor;
-		uint32_t unk3C0;
-		uint32_t unk3C4;
-		void* unk3C8;
-		void* unk3D0;
-		void* unk3D8;
-		void* unk3E0;
-		void* unk3E8;
-		BSFixedString morphNames[FACE_MORPHS_SIZE];
+		enum LipSyncState : std::uint32_t
+		{
+			kNone,
+			kPlaying,
+			kEnding,  // set when soundHandle stops being valid
+			kNoAnim   // initial value
+		};
+
+		// Bits of equipmentFlags. Set through 69534 (bit index, bool).
+		enum EquipmentFlag : std::uint8_t
+		{
+			kHat = 1 << 0,         // [101] Hat
+			kHideEar = 1 << 1,     // [102] HideEar
+			kEyesClosed = 1 << 2,  // forces speechExpression[25/26] (eyeClosedL/R) to 1; set by the face setup (40927)
+			                       // from ref vfunc 0x868 or ref flag 0x200 (probably "is dead")
+			kMask = 1 << 3         // [103] Mask
+		};
+
+		// 00C is a u32 (0xFFFFFFFF) inside NiRefObject's padding.
+		BSFixedString name;                              // 010 - NiExtraData, "FAD"
+		float         finalExpression[FACE_MORPHS_SIZE];  // 018 - output, read by the face-gen node
+		float         speechExpression[FACE_MORPHS_SIZE];  // 1B8 - input, rebuilt every Update; [0..100] from FaceFX
+		float*        expressionOverride;                 // 358 - float[101], heap. Photo Mode's "Expression" preset: set by
+		                                                  //       69527 via Actor 100543, freed by Actor 100544. Reader not found;
+		                                                  //       Update and the node update don't read it.
+		float         lipSyncExtraChannels[3];            // 360 - FaceFX tracks 101..103: Blink, Eyebrow Raise, Squint
+		float         speechTimer;                        // 36C
+		std::uint32_t faceEmotionInstanceHandle;          // 370 - slot in a 64-entry pool; 0xFFFFFFFF = none
+		std::uint32_t unk374;                             // 374 - a reference handle, cleared once its 3D is ready
+		bool          equipmentFlagsChanged;              // 378
+		std::uint8_t  equipmentFlags;                     // 379 - EquipmentFlag
+		std::uint8_t  lastEquipmentFlags;                 // 37A
+		std::uint8_t  pad37B;                             // 37B
+		BlinkState    blinkState;                         // 37C
+		float         blinkTimer;                         // 380 - starts at rand(fBlinkDelayMin, fBlinkDelayMax)
+		// Lids following the eyes: written by eye tracking (81967) as eye angle * fLidsFollowingEyes<Dir>Mult, which also
+		// sets forceUpdate. Only one of up/down and one of left/right is non-zero.
+		float         eyeOffsetUp;                        // 384 - added to [32] eyeUp
+		float         eyeOffsetDown;                      // 388 - added to [27] eyeDown
+		float         eyeOffsetLeft;                      // 38C - added to [28] eyeLeft
+		float         eyeOffsetRight;                     // 390 - added to [31] eyeRight
+		float         lookUp;                             // 394 - added to speechExpression[98] LookUp
+		float         lookDown;                           // 398 - added to speechExpression[97] LookDown
+		float         lookLeft;                           // 39C - added to speechExpression[100] LookLeft
+		float         lookRight;                          // 3A0 - added to speechExpression[99] LookRight
+		std::uint32_t lipSyncLock[2];                     // 3A4 - recursive lock; locked by 123819
+		std::uint32_t soundHandle;                        // 3AC - voice line sound ID; 0 = none
+		BSFixedString faceAnimArchetype;                  // 3B0
+		bool          dirty;                              // 3B8 - Update's return value
+		bool          forceUpdate;                        // 3B9 - the node updates even when not asked to; cleared
+		bool          skipUpdate;                         // 3BA - Update does nothing while set
+		std::uint8_t  pad3BB;                             // 3BB
+		std::uint32_t gender;                             // 3BC - 1 = female; from BSFaceGenNiNode flag 0x2000
+		void*         lipSyncAnim;                        // 3C0 - refcounted FaceFX actor instance (+0x8 refcount)
+		std::uint32_t actorHandle;                        // 3C8 - handle of the owning reference, set by the face 3D setup
+		                                                  //       (40933) right after it creates this data; 0 before that.
+		                                                  //       Update resets it to the invalid handle if it stops resolving.
+		LipSyncState  lipSyncState;                       // 3CC
 	};
+	static_assert(offsetof(BSFaceGenAnimationData, finalExpression) == 0x18);
+	static_assert(offsetof(BSFaceGenAnimationData, speechExpression) == 0x1B8);
+	static_assert(offsetof(BSFaceGenAnimationData, expressionOverride) == 0x358);
+	static_assert(offsetof(BSFaceGenAnimationData, blinkState) == 0x37C);
+	static_assert(offsetof(BSFaceGenAnimationData, faceAnimArchetype) == 0x3B0);
+	static_assert(offsetof(BSFaceGenAnimationData, lipSyncAnim) == 0x3C0);
+	static_assert(sizeof(BSFaceGenAnimationData) == 0x3D0);
 
 	// BSAnimationUpdateData, BGSModelNode and NiNode come from CommonLibSF.
 

@@ -148,8 +148,8 @@ namespace Animation::Face
 				a1->finalExpression[25] = 0.0f;
 				a1->finalExpression[26] = 0.0f;
 #ifdef TARGET_GAME_SF
-				a1->expression2[25] = 0.0f;
-				a1->expression2[26] = 0.0f;
+				a1->speechExpression[25] = 0.0f;
+				a1->speechExpression[26] = 0.0f;
 #endif
 			}
 		});
