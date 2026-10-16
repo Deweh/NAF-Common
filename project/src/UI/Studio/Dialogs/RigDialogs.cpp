@@ -2,6 +2,7 @@
 
 #include "UI/Studio/StudioSession.h"
 #include "Serialization/StudioProjectExport.h"
+#include "Settings/Settings.h"
 #include "Util/String.h"
 
 #include <nlohmann/json.hpp>
@@ -121,8 +122,8 @@ namespace UI::Studio
 		const float width = ImGui::GetFontSize() * 24.0f;
 
 		DrawBoundActorCombo(*m_project, m_actor, width);
-		const auto skeletonId = m_project->GetSkeletonId(m_actor);
-		const auto usable = [&](const Entry& a_entry) { return a_entry.rig && Util::String::CaseInsensitiveCompare(a_entry.rig->GetSkeletonId(), skeletonId); };
+		const std::string skeletonId{ m_project->GetSkeletonId(m_actor) };
+		const auto usable = [&](const Entry& a_entry) { return a_entry.rig && Settings::AreSkeletonsCompatible(a_entry.rig->GetSkeletonId(), skeletonId); };
 		if (m_index >= 0 && (m_index >= static_cast<int32_t>(m_entries.size()) || !usable(m_entries[m_index]))) m_index = -1;
 
 		// Rigs for other skeletons, and files that can't be read, are listed but can't be picked.
