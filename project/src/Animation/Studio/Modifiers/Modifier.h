@@ -22,7 +22,7 @@ namespace Animation::Studio
 	//
 	// A new modifier type derives from this, adds an ObjectType, and gets a ModifierSettings alternative if it has
 	// settings that aren't keyable. A model-space modifier (one that reads the posed skeleton or locators) implements
-	// GetWriteRoot and Solve, and the eval plan orders it among the others. A local-space, additive one implements
+	// GetWriteRoots and Solve, and the eval plan orders it among the others. A local-space, additive one implements
 	// ApplyToPose instead.
 	class ModifierObject : public SceneObject
 	{
@@ -41,9 +41,11 @@ namespace Animation::Studio
 		// Pose-time: adjusts the actor's local pose (its back buffer) before LocalToModel, so IK and locators see the
 		// result without an eval plan entry.
 		virtual void ApplyToPose(ActorObject&) const {}
-		// Model-space: the bone this modifier writes, along with all its descendants, or -1 if it doesn't solve in
-		// model space. Such modifiers join the eval plan.
-		[[nodiscard]] virtual int32_t GetWriteRoot(const ozz::animation::Skeleton&) const { return -1; }
+		// Model-space: the bones this modifier writes, each along with all its descendants, or none if it doesn't
+		// solve in model space. Such modifiers join the eval plan, reading each write root's parent.
+		[[nodiscard]] virtual std::vector<int32_t> GetWriteRoots(const ozz::animation::Skeleton&) const { return {}; }
+		// Bones of its own actor it reads besides its write roots' parents and its locators, such as a driver's inputs.
+		virtual void AppendBoneReads(const ozz::animation::Skeleton&, [[maybe_unused]] std::vector<int32_t>& a_bones) const {}
 		// Runs in the eval plan, after LocalToModel. Updates the pose's back buffer and the model matrices.
 		virtual void Solve(ModifierContext&) {}
 		// Bones this modifier fully owns while it's enabled. Edits to them are rejected. Additive modifiers own none.

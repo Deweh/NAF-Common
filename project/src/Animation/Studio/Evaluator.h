@@ -9,7 +9,7 @@ namespace Animation::Studio
 	{
 		ObjectId actor{ kNoObject };
 		const ozz::animation::Skeleton* skeleton{ nullptr };
-		int32_t writeRoot{ -1 };                          // The modifier writes this bone and all its descendants.
+		std::vector<int32_t> writeRoots;                  // The modifier writes these bones and all their descendants.
 		std::vector<std::pair<ObjectId, int32_t>> reads;  // Actor, bone.
 	};
 

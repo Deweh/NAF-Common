@@ -134,6 +134,10 @@ namespace UI::Studio
 		m_session.ActionMenuItem(Action::kCreateIKChain);
 		m_session.ActionMenuItem(Action::kCreateSplineIK);
 		m_session.ActionMenuItem(Action::kCreateFingerControls);
+#ifdef TARGET_GAME_F4
+		m_session.ActionMenuItem(Action::kCreateCorrectiveDrivers);
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Select an actor that doesn't have them yet.");
+#endif
 		ImGui::Separator();
 		if (ImGui::MenuItem("New Sequence...")) m_session.RequestPopup({ Popup::kNewSequence });
 	}

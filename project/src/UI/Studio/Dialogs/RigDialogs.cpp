@@ -23,8 +23,8 @@ namespace UI::Studio
 
 		std::string DescribeRig(const Serialization::StudioProjectImport::RigSummary& a_summary)
 		{
-			return std::format("{} IK chain(s), {} finger control(s), {} spline IK, {} posed bone(s), {} mask override(s)", a_summary.ikChains, a_summary.hands, a_summary.splineIKs,
-				a_summary.posedBones, a_summary.maskOverrides);
+			return std::format("{} IK chain(s), {} finger control(s), {} spline IK, {} corrective driver object(s), {} posed bone(s), {} mask override(s)", a_summary.ikChains,
+				a_summary.hands, a_summary.splineIKs, a_summary.correctiveDrivers, a_summary.posedBones, a_summary.maskOverrides);
 		}
 	}
 
@@ -75,8 +75,8 @@ namespace UI::Studio
 		DrawBoundActorCombo(*m_project, m_actor, width);
 		const auto modifiers = m_project->GetModifiers(m_actor);
 		const auto count = [&](ProjectEx::ObjectType a_type) { return std::ranges::count(modifiers, std::optional{ a_type }, [&](auto a_id) { return m_project->GetObjectType(a_id); }); };
-		ImGui::TextDisabled("%zd IK chain(s), %zd finger control(s), %zd spline IK", count(ProjectEx::ObjectType::kIKChain), count(ProjectEx::ObjectType::kHand),
-			count(ProjectEx::ObjectType::kSplineIK));
+		ImGui::TextDisabled("%zd IK chain(s), %zd finger control(s), %zd spline IK, %zd corrective driver object(s)", count(ProjectEx::ObjectType::kIKChain),
+			count(ProjectEx::ObjectType::kHand), count(ProjectEx::ObjectType::kSplineIK), count(ProjectEx::ObjectType::kCorrectiveDriver));
 		ImGui::TextDisabled("Also saves the pose, the bone mask and the bone display.");
 		ImGui::Spacing();
 
@@ -161,6 +161,7 @@ namespace UI::Studio
 		ImGui::Checkbox("IK Chains", &m_options.ikChains);
 		ImGui::Checkbox("Finger Controls", &m_options.hands);
 		ImGui::Checkbox("Spline IK", &m_options.splineIKs);
+		ImGui::Checkbox("Corrective Drivers", &m_options.correctiveDrivers);
 		ImGui::Checkbox("Replace Existing", &m_options.replaceModifiers);
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Remove the actor's own modifiers of the kinds checked above first.");
 		ImGui::Checkbox("Bone Mask", &m_options.boneMask);

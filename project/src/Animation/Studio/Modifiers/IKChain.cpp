@@ -57,10 +57,10 @@ namespace Animation::Studio
 		pole = a_locator(pole);
 	}
 
-	int32_t IKChainObject::GetWriteRoot(const ozz::animation::Skeleton& a_skeleton) const
+	std::vector<int32_t> IKChainObject::GetWriteRoots(const ozz::animation::Skeleton& a_skeleton) const
 	{
-		if (settings.shoulderBone >= 0 && IsValidShoulder(a_skeleton, settings.shoulderBone, upperBone)) return settings.shoulderBone;
-		return upperBone;
+		if (settings.shoulderBone >= 0 && IsValidShoulder(a_skeleton, settings.shoulderBone, upperBone)) return { settings.shoulderBone };
+		return { upperBone };
 	}
 
 	bool IKChainObject::DrivesBone(ozz::span<const int16_t> a_parents, int32_t a_bone) const

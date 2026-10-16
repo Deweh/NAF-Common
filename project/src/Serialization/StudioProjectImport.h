@@ -57,6 +57,7 @@ namespace Serialization
 			size_t ikChains{ 0 };
 			size_t hands{ 0 };
 			size_t splineIKs{ 0 };
+			size_t correctiveDrivers{ 0 };
 			size_t posedBones{ 0 };
 			size_t maskOverrides{ 0 };
 		};

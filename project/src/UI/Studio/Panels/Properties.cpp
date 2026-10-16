@@ -1,6 +1,7 @@
 #include "UI/Studio/Panels/Properties.h"
 
 #include "UI/Studio/StudioSession.h"
+#include "Animation/Studio/Modifiers/CorrectiveDriver.h"
 #include "Animation/Studio/Modifiers/Hand.h"
 
 namespace UI::Studio
@@ -126,6 +127,9 @@ namespace UI::Studio
 			break;
 		case ProjectEx::ObjectType::kSplineIK:
 			DrawSplineIKProperties(active->object);
+			break;
+		case ProjectEx::ObjectType::kCorrectiveDriver:
+			DrawCorrectiveDriverProperties(active->object);
 			break;
 		}
 		ImGui::End();
@@ -254,6 +258,28 @@ namespace UI::Studio
 		ImGui::SameLine();
 		const bool changed = a_angle ? ImGui::SliderAngle(a_label, std::addressof(*value), a_min, a_max) : ImGui::SliderFloat(a_label, std::addressof(*value), a_min, a_max);
 		TrackFieldEdit(std::format("Edit {}", GetPropertyName(a_property.property)).c_str(), changed, [&] { m_session.ApplyFieldValue(a_property, *value); });
+	}
+
+	void Properties::DrawCorrectiveDriverProperties(ProjectEx::ObjectId a_drivers)
+	{
+		using PropertyId = ProjectEx::PropertyId;
+		const auto info = m_project->GetCorrectiveDriver(a_drivers);
+		if (!info) return;
+		const ProjectEx::PropertyRef enabledRef{ a_drivers, ProjectEx::kSelf, PropertyId::kEnabled };
+		if (auto enabled = m_project->GetValue<bool>(enabledRef)) {
+			DrawKeyIndicator(enabledRef);
+			ImGui::SameLine();
+			if (ImGui::Checkbox("Enabled", std::addressof(*enabled))) m_session.ApplyFieldValue(enabledRef, *enabled);
+		}
+		DrawFloatProperty({ a_drivers, ProjectEx::kSelf, PropertyId::kWeight }, "Weight", 0.0f, 1.0f, false);
+		ImGui::SeparatorText("Drivers");
+		ImGui::TextDisabled("Each moves helper bones on top of their own pose.");
+		for (size_t i = 0; i < info->settings.drivers.size(); ++i) {
+			ImGui::PushID(static_cast<int>(i));
+			const auto name = Animation::Studio::GetCorrectiveDriverName(info->settings.drivers[i]);
+			DrawFloatProperty({ a_drivers, static_cast<uint16_t>(i), PropertyId::kWeight }, name.c_str(), 0.0f, Animation::Studio::kMaxCorrectiveDriverWeight, false);
+			ImGui::PopID();
+		}
 	}
 
 	void Properties::DrawHandPresetMenu(ProjectEx::ObjectId a_hand)

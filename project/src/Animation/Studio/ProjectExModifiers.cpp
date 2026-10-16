@@ -1,5 +1,6 @@
 #include "ProjectEx.h"
 
+#include "Modifiers/CorrectiveDriver.h"
 #include "Modifiers/Hand.h"
 #include "Modifiers/IKChain.h"
 #include "Modifiers/SplineIK.h"
@@ -185,6 +186,35 @@ namespace Animation::Studio
 		result.reserve(spline->curve.size());
 		for (const auto& point : spline->curve) result.push_back(TransformPoint(actor->rootWorld, point));
 		return result;
+	}
+
+	std::expected<ProjectEx::ObjectId, std::string> ProjectEx::AddCorrectiveDriver(ObjectId a_actor)
+	{
+		const auto actor = FindObject<ActorObject>(a_actor);
+		if (!actor || !actor->skeleton) return std::unexpected("The actor has no skeleton.");
+		// A second one would apply every correction twice.
+		if (FindCorrectiveDriver(a_actor) != kNoObject) return std::unexpected("The actor already has corrective drivers.");
+		auto build = BuildCorrectiveDriver(*actor, m_nextObjectId);
+		if (!build) return std::unexpected(std::move(build.error()));
+
+		TransactionScope transaction(*this, "Add corrective drivers");
+		Pause();
+		return RecordModifierBuild(*actor, std::move(*build));
+	}
+
+	std::optional<ProjectEx::CorrectiveDriverInfo> ProjectEx::GetCorrectiveDriver(ObjectId a_id) const
+	{
+		const auto object = FindObject<CorrectiveDriverObject>(a_id);
+		if (!object) return std::nullopt;
+		return CorrectiveDriverInfo{ object->actor, object->settings };
+	}
+
+	ProjectEx::ObjectId ProjectEx::FindCorrectiveDriver(ObjectId a_actor) const
+	{
+		const auto actor = FindObject<ActorObject>(a_actor);
+		if (!actor) return kNoObject;
+		const auto iter = std::ranges::find_if(actor->modifiers, [&](ObjectId a_id) { return FindObject<CorrectiveDriverObject>(a_id) != nullptr; });
+		return iter != actor->modifiers.end() ? *iter : kNoObject;
 	}
 
 	ProjectEx::ObjectId ProjectEx::GetLocatorOwner(ObjectId a_locator) const

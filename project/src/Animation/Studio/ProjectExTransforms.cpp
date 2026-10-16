@@ -66,23 +66,31 @@ namespace Animation::Studio
 			return true;
 		} else if (const auto actor = FindObject<ActorObject>(a_ref.object)) {
 			// Bones no modifier drives keep their local transform through the solve, so the final parent is the
-			// right space. Additive modifiers (finger curl, auto-shoulder) still rotate them, by an offset that
-			// stays out of the edit: live = desired * inverse(inverse(live) * posed).
+			// right space. Additive modifiers (finger curl, auto-shoulder, corrective drivers) still rotate them, by
+			// an offset that stays out of the edit: live = desired * inverse(inverse(live) * posed). Corrective
+			// drivers also slide some, by a translation offset kept out the same way: live = desired - (posed - live).
 			if (!actor->hasRoot || !actor->skeleton || !actor->pose || a_ref.element >= actor->model.size()) return false;
 			const int16_t parent = actor->skeleton->data->joint_parents()[a_ref.element];
 			const auto boneParentWorld = parent == ozz::animation::Skeleton::kNoParent ? actor->rootWorld : actor->rootWorld * actor->model[parent];
 			const auto parentInverse = TryInvert(boneParentWorld);
 			if (!parentInverse) return false;
 			auto local = *parentInverse * a_world;
-			const auto live = Normalized(actor->bones[a_ref.element].rotation.live);
+			const auto& bone = actor->bones[a_ref.element];
+			const auto live = Normalized(bone.rotation.live);
 			// The front buffer: once a solve is published, the back buffer holds an older pose.
-			const auto posed = GetPoseRotation(actor->pose->Front(), a_ref.element);
+			const auto& front = actor->pose->Front();
+			const auto posed = GetPoseRotation(front, a_ref.element);
 			const auto offset = ozz::math::Conjugate(live) * EnsureSameHemisphere(live, posed);
+			const auto slide = GetPoseTranslation(front, a_ref.element) - bone.translation.live;
+			const bool rotated = (a_mask & kTransformRotation) && std::abs(offset.w) < 0.999999f;
+			const bool slid = (a_mask & kTransformTranslation) && ozz::math::Length(slide) > 0.00001f;
 			ozz::math::Float3 translation;
 			ozz::math::Quaternion rotation;
 			ozz::math::Float3 scale;
-			if ((a_mask & kTransformRotation) && std::abs(offset.w) < 0.999999f && ozz::math::ToAffine(local, &translation, &rotation, &scale)) {
-				local = ozz::math::Float4x4::FromAffine(translation, Normalized(rotation * ozz::math::Conjugate(offset)), scale);
+			if ((rotated || slid) && ozz::math::ToAffine(local, &translation, &rotation, &scale)) {
+				if (rotated) rotation = Normalized(rotation * ozz::math::Conjugate(offset));
+				if (slid) translation = translation - slide;
+				local = ozz::math::Float4x4::FromAffine(translation, rotation, scale);
 			}
 			return RecordTransform(a_ref, local, a_mask);
 		} else if (const auto locator = FindObject<LocatorObject>(a_ref.object); locator && a_ref.element == kSelf) {

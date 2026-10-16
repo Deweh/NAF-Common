@@ -44,9 +44,10 @@ namespace Animation::Studio
 		for (auto& control : controls) control = a_locator(control);
 	}
 
-	int32_t SplineIKObject::GetWriteRoot(const ozz::animation::Skeleton&) const
+	std::vector<int32_t> SplineIKObject::GetWriteRoots(const ozz::animation::Skeleton&) const
 	{
-		return bones.empty() ? -1 : bones.front();
+		if (bones.empty()) return {};
+		return { bones.front() };
 	}
 
 	bool SplineIKObject::DrivesBone(ozz::span<const int16_t>, int32_t a_bone) const

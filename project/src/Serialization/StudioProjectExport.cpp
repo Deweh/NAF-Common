@@ -2,6 +2,7 @@
 #include "Util/Game.h"
 
 #include "StudioProjectFormat.h"
+#include "Animation/Studio/Modifiers/CorrectiveDriver.h"
 #include "Animation/Studio/Modifiers/Hand.h"
 #include "Animation/Studio/Modifiers/IKChain.h"
 #include "Animation/Studio/Modifiers/SplineIK.h"
@@ -237,6 +238,28 @@ namespace Serialization
 				};
 				break;
 			}
+		case ProjectEx::ObjectType::kCorrectiveDriver:
+			{
+				const auto& driverObject = static_cast<const Animation::Studio::CorrectiveDriverObject&>(object);
+				item["actor"] = driverObject.actor;
+				auto& drivers = item["drivers"] = json::array();
+				auto driverWeights = json::array();
+				for (size_t i = 0; i < driverObject.settings.drivers.size(); ++i) {
+					const auto& driver = driverObject.settings.drivers[i];
+					drivers.push_back({
+						{ "kind", Format::kCorrectiveDriverKindNames[static_cast<size_t>(driver.kind)] },
+						{ "mirrored", driver.mirrored },
+						{ "bones", BoneNames(a_project, driverObject.actor, driver.bones) }
+					});
+					driverWeights.push_back(i < driverObject.driverWeights.size() ? value(driverObject.driverWeights[i]) : 1.0f);
+				}
+				item["defaults"] = {
+					{ "weight", value(driverObject.weight) },
+					{ "enabled", value(driverObject.enabled) },
+					{ "driverWeights", std::move(driverWeights) }
+				};
+				break;
+			}
 		}
 		return item;
 	}
@@ -246,12 +269,15 @@ namespace Serialization
 		try {
 			std::vector<std::byte> binary;
 
-			// Object, then the element (a bone name for actors, a finger index for hands), then property name.
+			// Object, then the element (a bone name for actors, a finger index for hands, a driver index for
+			// corrective drivers), then property name.
 			const auto propertyJson = [&](const ProjectEx::PropertyRef& a_ref) {
 				json result{ { "object", a_ref.object } };
 				if (a_ref.element != ProjectEx::kSelf) {
 					const auto object = a_project.FindObject(a_ref.object);
-					if (object && object->GetType() == ProjectEx::ObjectType::kHand) result["finger"] = a_ref.element;
+					const auto type = object ? std::optional{ object->GetType() } : std::nullopt;
+					if (type == ProjectEx::ObjectType::kHand) result["finger"] = a_ref.element;
+					else if (type == ProjectEx::ObjectType::kCorrectiveDriver) result["driver"] = a_ref.element;
 					else result["bone"] = BoneName(a_project, a_ref.object, a_ref.element);
 				}
 				result["property"] = Format::kPropertyNames[static_cast<size_t>(a_ref.property)];

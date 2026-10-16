@@ -169,6 +169,9 @@ namespace UI::Studio
 		[[nodiscard]] bool CanCreateIKChainFromSelection() const;
 		void CreateFingerControlsFromSelection();
 		[[nodiscard]] bool CanCreateFingerControlsFromSelection() const;
+		// For the active actor, which has none yet. Fallout 4 only.
+		void CreateCorrectiveDriversFromSelection();
+		[[nodiscard]] bool CanCreateCorrectiveDriversFromSelection() const;
 		// a_controlCount is clamped to the path's length.
 		void CreateSplineIKFromSelection(uint32_t a_controlCount);
 		// The selection's two bones, start first, when they make a valid spline path. Its length in bones is the

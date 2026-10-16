@@ -2,6 +2,7 @@
 #include "Util/Game.h"
 
 #include "StudioProjectFormat.h"
+#include "Animation/Studio/Modifiers/CorrectiveDriver.h"
 #include "Animation/Studio/Modifiers/Hand.h"
 #include "Animation/Studio/Modifiers/IKChain.h"
 #include "Animation/Studio/Modifiers/SplineIK.h"
@@ -31,7 +32,7 @@ namespace Serialization
 		{
 			ObjectId object{ ProjectEx::kNoObject };
 			std::optional<std::string> bone;  // Actor bones only.
-			std::optional<uint16_t> finger;   // Hand fingers only.
+			std::optional<uint16_t> element;  // A hand's finger, or a corrective driver object's driver.
 			PropertyId property{ PropertyId::kTranslation };
 		};
 
@@ -133,6 +134,22 @@ namespace Serialization
 			bool enabled{ true };
 		};
 
+		struct FileCorrectiveDriver
+		{
+			Animation::Studio::CorrectiveDriverKind kind{ Animation::Studio::CorrectiveDriverKind::kArmTwist };
+			bool mirrored{ false };
+			std::vector<std::string> bones;
+			float weight{ 1.0f };
+		};
+
+		struct FileCorrectiveDrivers
+		{
+			ObjectId actor{ ProjectEx::kNoObject };
+			std::vector<FileCorrectiveDriver> drivers;
+			float weight{ 1.0f };
+			bool enabled{ true };
+		};
+
 		struct FileSplineIK
 		{
 			ObjectId actor{ ProjectEx::kNoObject };
@@ -151,7 +168,7 @@ namespace Serialization
 		};
 
 		// Same alternative order as ProjectEx::ObjectType.
-		using FileObjectData = std::variant<FileActor, FileLocator, FileIKChain, FileHand, FileSplineIK>;
+		using FileObjectData = std::variant<FileActor, FileLocator, FileIKChain, FileHand, FileSplineIK, FileCorrectiveDrivers>;
 
 		// ---- Reading ----
 
@@ -288,28 +305,31 @@ namespace Serialization
 			return NormalizeRotation({ values[0], values[1], values[2], values[3] });
 		}
 
-		// The value type each property holds, as a ProjectEx::Value index. Bones only belong to actors, and fingers
-		// to hands.
-		size_t GetValueIndex(ProjectEx::ObjectType a_type, bool a_hasBone, bool a_hasFinger, PropertyId a_property)
+		// The value type each property holds, as a ProjectEx::Value index. Bones only belong to actors, and other
+		// elements to hands (fingers) and corrective drivers (drivers).
+		size_t GetValueIndex(ProjectEx::ObjectType a_type, bool a_hasBone, bool a_hasElement, PropertyId a_property)
 		{
 			const auto is = [&](std::initializer_list<PropertyId> a_properties) { return std::ranges::contains(a_properties, a_property); };
 			const bool transform = is({ PropertyId::kTranslation, PropertyId::kRotation, PropertyId::kScale });
 			bool valid = false;
 			switch (a_type) {
 			case ProjectEx::ObjectType::kActor:
-				valid = a_hasBone && !a_hasFinger && transform;
+				valid = a_hasBone && !a_hasElement && transform;
 				break;
 			case ProjectEx::ObjectType::kLocator:
-				valid = !a_hasBone && !a_hasFinger && transform;
+				valid = !a_hasBone && !a_hasElement && transform;
 				break;
 			case ProjectEx::ObjectType::kIKChain:
-				valid = !a_hasBone && !a_hasFinger && is({ PropertyId::kWeight, PropertyId::kSoften, PropertyId::kTwist, PropertyId::kEnabled, PropertyId::kShoulderWeight, PropertyId::kTwistDistribution });
+				valid = !a_hasBone && !a_hasElement && is({ PropertyId::kWeight, PropertyId::kSoften, PropertyId::kTwist, PropertyId::kEnabled, PropertyId::kShoulderWeight, PropertyId::kTwistDistribution });
 				break;
 			case ProjectEx::ObjectType::kHand:
-				valid = !a_hasBone && (a_hasFinger ? is({ PropertyId::kCurl, PropertyId::kSpread }) : is({ PropertyId::kCurl, PropertyId::kSpread, PropertyId::kWeight, PropertyId::kEnabled }));
+				valid = !a_hasBone && (a_hasElement ? is({ PropertyId::kCurl, PropertyId::kSpread }) : is({ PropertyId::kCurl, PropertyId::kSpread, PropertyId::kWeight, PropertyId::kEnabled }));
 				break;
 			case ProjectEx::ObjectType::kSplineIK:
-				valid = !a_hasBone && !a_hasFinger && is({ PropertyId::kWeight, PropertyId::kTwist, PropertyId::kStretch, PropertyId::kTangentLength, PropertyId::kOrient, PropertyId::kEnabled });
+				valid = !a_hasBone && !a_hasElement && is({ PropertyId::kWeight, PropertyId::kTwist, PropertyId::kStretch, PropertyId::kTangentLength, PropertyId::kOrient, PropertyId::kEnabled });
+				break;
+			case ProjectEx::ObjectType::kCorrectiveDriver:
+				valid = !a_hasBone && (a_hasElement ? a_property == PropertyId::kWeight : is({ PropertyId::kWeight, PropertyId::kEnabled }));
 				break;
 			}
 			if (!valid) Fail("A property does not belong to its object.");
@@ -607,6 +627,27 @@ namespace Serialization
 					spline.enabled = ReadBool(Field(defaults, "enabled"), "enabled");
 					return spline;
 				}
+			case ProjectEx::ObjectType::kCorrectiveDriver:
+				{
+					FileCorrectiveDrivers data;
+					data.actor = ReadUInt32(a_item, "actor");
+					for (const Element item : ReadArray(Field(a_item, "drivers"), "drivers")) {
+						FileCorrectiveDriver driver;
+						driver.kind = static_cast<Animation::Studio::CorrectiveDriverKind>(FindName(Format::kCorrectiveDriverKindNames, ReadString(Field(item, "kind"), "kind"), "corrective driver kind"));
+						driver.mirrored = ReadBool(Field(item, "mirrored"), "mirrored");
+						driver.bones = ReadStrings(Field(item, "bones"), "bones");
+						if (driver.bones.size() != Animation::Studio::GetCorrectiveDriverBoneCount(driver.kind)) Fail(std::format("Corrective drivers \"{}\" are malformed.", a_name));
+						data.drivers.push_back(std::move(driver));
+					}
+					if (data.drivers.empty() || data.drivers.size() >= ProjectEx::kSelf) Fail(std::format("Corrective drivers \"{}\" have an invalid number of drivers.", a_name));
+					const auto defaults = Field(a_item, "defaults");
+					data.weight = ReadFloat(Field(defaults, "weight"), "weight");
+					data.enabled = ReadBool(Field(defaults, "enabled"), "enabled");
+					const auto weights = ReadFloatArray(Field(defaults, "driverWeights"), "driverWeights");
+					if (weights.size() != data.drivers.size()) Fail(std::format("Corrective drivers \"{}\" have mismatched driver weights.", a_name));
+					for (size_t i = 0; i < weights.size(); ++i) data.drivers[i].weight = weights[i];
+					return data;
+				}
 			default:
 				Fail("An actor is not allowed here.");
 			}
@@ -727,6 +768,7 @@ namespace Serialization
 			// and each actor's modifiers must be exactly the modifiers that name it.
 			std::set<ObjectId> listedModifiers;
 			std::set<ObjectId> ownedLocators;
+			std::set<ObjectId> driverActors;  // An actor has at most one corrective driver object.
 			const auto own = [&](ObjectId a_locator) { return isType(a_locator, ProjectEx::ObjectType::kLocator) && ownedLocators.insert(a_locator).second; };
 			for (const auto& object : file->objects) {
 				if (const auto locator = std::get_if<FileLocator>(&object.data)) {
@@ -739,6 +781,10 @@ namespace Serialization
 					}
 				} else if (const auto hand = std::get_if<FileHand>(&object.data)) {
 					if (!isType(hand->actor, ProjectEx::ObjectType::kActor)) Fail(std::format("Hand \"{}\" has invalid references.", object.name));
+				} else if (const auto drivers = std::get_if<FileCorrectiveDrivers>(&object.data)) {
+					if (!isType(drivers->actor, ProjectEx::ObjectType::kActor) || !driverActors.insert(drivers->actor).second) {
+						Fail(std::format("Corrective drivers \"{}\" have invalid references.", object.name));
+					}
 				} else if (const auto spline = std::get_if<FileSplineIK>(&object.data)) {
 					if (!isType(spline->actor, ProjectEx::ObjectType::kActor) || !std::ranges::all_of(spline->controls, own)) {
 						Fail(std::format("Spline IK \"{}\" has invalid references.", object.name));
@@ -761,14 +807,20 @@ namespace Serialization
 				FileProperty property;
 				property.object = ReadUInt32(a_item, "object");
 				property.bone = ReadOptionalBone(a_item, "bone");
-				if (const auto finger = OptionalField(a_item, "finger")) property.finger = static_cast<uint16_t>((std::min)(ReadUInt(*finger, "finger"), uint64_t{ ProjectEx::kSelf }));
+				const auto finger = OptionalField(a_item, "finger");
+				const auto driver = OptionalField(a_item, "driver");
+				if (finger && driver) Fail("A property names both a finger and a driver.");
+				if (finger) property.element = static_cast<uint16_t>((std::min)(ReadUInt(*finger, "finger"), uint64_t{ ProjectEx::kSelf }));
+				if (driver) property.element = static_cast<uint16_t>((std::min)(ReadUInt(*driver, "driver"), uint64_t{ ProjectEx::kSelf }));
 				property.property = static_cast<PropertyId>(FindName(Format::kPropertyNames, ReadString(Field(a_item, "property"), "property"), "property"));
 				const auto type = getType(property.object);
 				if (!type) Fail("A property refers to an object that does not exist.");
-				const size_t valueIndex = GetValueIndex(*type, property.bone.has_value(), property.finger.has_value(), property.property);
-				if (property.finger) {
-					const auto& hand = std::get<FileHand>(file->objects[objectIndices.at(property.object)].data);
-					if (*property.finger >= hand.fingers.size()) Fail("A property refers to a finger that does not exist.");
+				if ((finger && *type != ProjectEx::ObjectType::kHand) || (driver && *type != ProjectEx::ObjectType::kCorrectiveDriver)) Fail("A property does not belong to its object.");
+				const size_t valueIndex = GetValueIndex(*type, property.bone.has_value(), property.element.has_value(), property.property);
+				if (property.element) {
+					const auto& data = file->objects[objectIndices.at(property.object)].data;
+					const size_t count = *type == ProjectEx::ObjectType::kHand ? std::get<FileHand>(data).fingers.size() : std::get<FileCorrectiveDrivers>(data).drivers.size();
+					if (*property.element >= count) Fail("A property refers to a finger or driver that does not exist.");
 				}
 				return std::pair{ std::move(property), valueIndex };
 			};
@@ -789,7 +841,7 @@ namespace Serialization
 				std::set<std::tuple<ObjectId, std::optional<std::string>, std::optional<uint16_t>, PropertyId>> trackedProperties;
 				for (const Element trackItem : ReadArray(Field(item, "tracks"), "tracks")) {
 					auto [property, valueIndex] = readProperty(trackItem);
-					if (!trackedProperties.emplace(property.object, property.bone, property.finger, property.property).second) Fail(std::format("Sequence \"{}\" has duplicate tracks.", sequence.name));
+					if (!trackedProperties.emplace(property.object, property.bone, property.element, property.property).second) Fail(std::format("Sequence \"{}\" has duplicate tracks.", sequence.name));
 					if (FindName(Format::kValueTypeNames, ReadString(Field(trackItem, "type"), "type"), "value type") != valueIndex) Fail("A track's value type does not match its property.");
 
 					const uint64_t offset = ReadUInt(Field(trackItem, "offset"), "offset");
@@ -950,7 +1002,7 @@ namespace Serialization
 		const auto resolveProperty = [&](const FileProperty& a_property, size_t& a_missingBones) -> std::optional<ProjectEx::PropertyRef> {
 			if (removedModifiers.contains(a_property.object)) return std::nullopt;
 			ProjectEx::PropertyRef ref{ a_property.object, ProjectEx::kSelf, a_property.property };
-			if (a_property.finger) ref.element = *a_property.finger;  // Validated against the hand by Read.
+			if (a_property.element) ref.element = *a_property.element;  // Validated against the hand or drivers by Read.
 			if (a_property.bone) {
 				const auto bone = findBone(a_property.object, *a_property.bone);
 				if (!bone) {
@@ -1110,6 +1162,9 @@ namespace Serialization
 				} else if (const auto spline = std::get_if<FileSplineIK>(&object.data)) {
 					if (spline->actor != file->actor || !std::ranges::all_of(spline->controls, own)) Fail(std::format("Spline IK \"{}\" has invalid references.", object.name));
 					++summary.splineIKs;
+				} else if (const auto drivers = std::get_if<FileCorrectiveDrivers>(&object.data)) {
+					if (drivers->actor != file->actor || summary.correctiveDrivers > 0) Fail(std::format("Corrective drivers \"{}\" have invalid references.", object.name));
+					++summary.correctiveDrivers;
 				}
 			}
 			summary.posedBones = file->pose.size();
@@ -1242,6 +1297,33 @@ namespace Serialization
 			hand->weight = { data.weight, data.weight };
 			hand->enabled = { data.enabled, data.enabled };
 			return hand;
+		} else if (std::holds_alternative<FileCorrectiveDrivers>(a_object.data)) {
+			const auto& data = std::get<FileCorrectiveDrivers>(a_object.data);
+			const auto& skeleton = a_skeleton(data.actor);
+			auto object = std::make_unique<Animation::Studio::CorrectiveDriverObject>();
+			object->id = a_object.id;
+			object->name = a_object.name;
+			object->actor = data.actor;
+			// Drivers whose bones are missing are dropped, and the rest kept.
+			size_t dropped = 0;
+			for (const auto& driver : data.drivers) {
+				const auto bones = findBones(data.actor, driver.bones);
+				Animation::Studio::CorrectiveDriver built{ .kind = driver.kind, .mirrored = driver.mirrored, .bones = bones.value_or(std::vector<int32_t>{}) };
+				if (!bones || !Animation::Studio::IsValidCorrectiveDriver(skeleton, built)) {
+					++dropped;
+					continue;
+				}
+				object->settings.drivers.push_back(std::move(built));
+				object->driverWeights.push_back({ driver.weight, driver.weight });
+			}
+			if (object->settings.drivers.empty()) {
+				a_warnings.push_back(std::format("Corrective drivers \"{}\" were removed: their bones don't match the bound actor's skeleton.", a_object.name));
+				return nullptr;
+			}
+			if (dropped > 0) a_warnings.push_back(std::format("Corrective drivers \"{}\" lost {} driver(s): their bones don't match the bound actor's skeleton.", a_object.name, dropped));
+			object->weight = { data.weight, data.weight };
+			object->enabled = { data.enabled, data.enabled };
+			return object;
 		} else if (std::holds_alternative<FileSplineIK>(a_object.data)) {
 			const auto& data = std::get<FileSplineIK>(a_object.data);
 			const auto bones = findBones(data.actor, data.bones);

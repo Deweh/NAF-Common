@@ -63,6 +63,7 @@ namespace Animation::Studio
 		using IKChainInfo = Studio::IKChainInfo;
 		using HandInfo = Studio::HandInfo;
 		using SplineIKInfo = Studio::SplineIKInfo;
+		using CorrectiveDriverInfo = Studio::CorrectiveDriverInfo;
 		using KeyData = Studio::KeyData;
 		using WorldTransformEdit = Studio::WorldTransformEdit;
 		using RigOptions = Studio::RigOptions;
@@ -212,6 +213,13 @@ namespace Animation::Studio
 		bool SetSplineIKSettings(ObjectId a_id, const SplineIKSettings& a_settings);
 		// The evaluated curve in world space, for display.
 		[[nodiscard]] std::vector<ozz::math::Float3> GetSplineIKCurve(ObjectId a_id);
+
+		// Drivers for every corrective bone the actor's skeleton has (Fallout 4's human skeleton only, so far). An
+		// actor has at most one.
+		std::expected<ObjectId, std::string> AddCorrectiveDriver(ObjectId a_actor);
+		[[nodiscard]] std::optional<CorrectiveDriverInfo> GetCorrectiveDriver(ObjectId a_id) const;
+		// The actor's corrective driver object, or kNoObject.
+		[[nodiscard]] ObjectId FindCorrectiveDriver(ObjectId a_actor) const;
 
 		// The modifier using a locator (an IK chain's effector or pole, or a spline's control), or kNoObject.
 		[[nodiscard]] ObjectId GetLocatorOwner(ObjectId a_locator) const;

@@ -254,6 +254,9 @@ namespace UI::Studio
 			if (ImGui::MenuItem("Unbind", nullptr, false, m_project->GetBoundActor(a_element.object) != nullptr)) m_project->UnbindActor(a_element.object);
 			ImGui::Separator();
 			if (ImGui::MenuItem("Add Locator")) m_session.AddLocator({ a_element.object }, std::nullopt);
+#ifdef TARGET_GAME_F4
+			m_session.ActionMenuItem(Action::kCreateCorrectiveDrivers);
+#endif
 			if (ImGui::MenuItem("Reset Pose")) m_session.ResetTransforms(std::span{ &a_element, 1 });
 			if (ImGui::MenuItem("Reset Bone Display")) m_session.ResetBoneDisplay(a_element.object);
 			if (ImGui::MenuItem("Reset Bone Mask")) m_project->ResetBoneMask(a_element.object);
@@ -329,6 +332,16 @@ namespace UI::Studio
 					}
 					ImGui::EndMenu();
 				}
+				remove();
+				break;
+			}
+		case ProjectEx::ObjectType::kCorrectiveDriver:
+			{
+				if (ImGui::MenuItem("Rename...", renameShortcut.c_str())) m_session.RequestPopup({ Popup::kRename, a_element.object });
+				const ProjectEx::PropertyRef enabledRef{ a_element.object, ProjectEx::kSelf, ProjectEx::PropertyId::kEnabled };
+				const bool enabled = m_project->GetValue<bool>(enabledRef).value_or(false);
+				if (ImGui::MenuItem("Enabled", nullptr, enabled)) m_session.ApplyFieldValue(enabledRef, !enabled);
+				DrawBezierModeMenu();
 				remove();
 				break;
 			}

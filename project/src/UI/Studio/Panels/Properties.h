@@ -22,6 +22,7 @@ namespace UI::Studio
 		void DrawIKChainProperties(ProjectEx::ObjectId a_chain);
 		void DrawHandProperties(ProjectEx::ObjectId a_hand);
 		void DrawSplineIKProperties(ProjectEx::ObjectId a_spline);
+		void DrawCorrectiveDriverProperties(ProjectEx::ObjectId a_drivers);
 		// A keyable float with its key indicator, as a slider (or an angle slider in degrees).
 		void DrawFloatProperty(const ProjectEx::PropertyRef& a_property, const char* a_label, float a_min, float a_max, bool a_angle);
 		bool DrawKeyIndicator(const ProjectEx::PropertyRef& a_property);

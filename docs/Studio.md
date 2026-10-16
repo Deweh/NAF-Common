@@ -26,7 +26,7 @@ NAF Studio is the in-game animation editor. It's made of three parts:
 | `GameBridge` | The only model file that touches the game: actor skeletons and compatibility, `HoldActor`, the StudioGenerator. |
 | `Skeleton` | Bone paths, children, the rest pose in model space. |
 | `Modifiers/Modifier.h` | `ModifierObject`, the interface every modifier implements, and `ModifierContext`. |
-| `Modifiers/IKChain`, `Hand`, `SplineIK` | Each modifier's object, solve, detection and creation (`Build*`). |
+| `Modifiers/IKChain`, `Hand`, `SplineIK`, `CorrectiveDriver` | Each modifier's object, solve, detection and creation (`Build*`). |
 | `Modifiers/SplineMath` | Spline IK's curve and bone placement. Pure. |
 | `ProjectEx.cpp` | Scene, objects, actors, locators. The rest of the facade is split by feature: `ProjectExHistory`, `ProjectExTimeline` (sampling, transport, sequences, properties, keys), `ProjectExModifiers`, `ProjectExTransforms` (world transforms, bone mask), `ProjectExLoading` (file hooks, rigs), `ProjectExBake`. |
 
@@ -116,6 +116,8 @@ ScenePlacement { Float3 translation; float heading; }  // heading: radians about
 | Hand | `kSelf` | curl ("Fist"), spread, weight (float), enabled (bool) | |
 | Hand | finger index | curl, spread | float |
 | Spline IK | `kSelf` | weight, twist, stretch, tangentLength, orient (float), enabled (bool) | |
+| Corrective drivers | `kSelf` | weight (float), enabled (bool) | |
+| Corrective drivers | driver index | weight | float |
 
 An actor's own placement (`kSelf`) is **not** a property; it's set through `SetActorPlacement` or `SetWorldTransform(kSelf)`.
 
@@ -139,7 +141,7 @@ An actor's own placement (`kSelf`) is **not** a property; it's set through `SetA
   - `bindingHint` is the last bound form ID.
 - **Placement:** a `ScenePlacement` relative to the scene center.
 - **Bones:** `vector<TransformProperties>`, indexed by joint. Their defaults are the skeleton's rest pose.
-- **Modifiers:** a `vector<ObjectId>` of IK chains, hands and spline IKs in application order (§2.10).
+- **Modifiers:** a `vector<ObjectId>` of IK chains, hands, spline IKs and corrective drivers in application order (§2.10).
 - **Bone mask:** `maskOverrides`, a `map<int32_t, bool>` from bone to masked, holding only bones that differ from the skeleton's default mask (§2.12).
 - **Evaluation output:**
   - `model` holds the final model-space matrices.
@@ -289,7 +291,7 @@ Drawing happens before `Update`, so the overlays show the pose that's on screen;
 `Evaluate()` is also called by the getters (`GetWorldTransform`, `GetModelTransforms`, `GetSplineIKCurve`), many times per frame. It returns early when nothing has changed:
 1. **Root worlds**, only when `m_rootsDirty` (set once per `Update`, since the game can unload or rescale an actor's 3D) or `m_solveNeeded` (every change that moves a root's inputs, such as placement, scene center or binding, goes through `Apply` and sets it). `RefreshRootWorld` sets `rootWorld` to `ToMatrix(sceneCenter * placement)`, the placement the actor is held at, with only the scale taken from `Get3D()->world`. The pose solved now is applied at the game's next update, which is also when the 3D reaches the held placement, so solving against the 3D as it stands would put world-space targets off by however far the actor just moved. A change sets `m_solveNeeded`.
 2. **Eval plan.** If `m_planDirty`, `BuildPlan()` runs:
-   - `DescribeModifier` gives a modifier's write root (`ModifierObject::GetWriteRoot`) and its reads. For a chain, the write root is its upper bone (or its shoulder, when it has one) and all descendants. The reads are the write root's parent, plus the bone each of its locators (`GetLocators`) ultimately hangs from. Spline IK works the same way with its start bone and controls. Hands have no write root, so they aren't in the plan.
+   - `DescribeModifier` gives a modifier's write roots (`ModifierObject::GetWriteRoots`) and its reads. For a chain, the write root is its upper bone (or its shoulder, when it has one) and all descendants. The reads are each write root's parent, the bones the modifier names in `AppendBoneReads`, and the bone each of its locators (`GetLocators`) ultimately hangs from. Spline IK works the same way with its start bone and controls. Corrective drivers have several write roots (twist bones and rib helpers) and read the bones that drive them. Hands have no write root, so they aren't in the plan.
    - B depends on A when B reads a bone A writes (`Affects`).
    - Tarjan SCC finds the groups; steps run in topological order; a cycle group runs `kCycleIterations` (4) times.
 3. **Solve** (`Solve(publish)`). If `m_solveNeeded`:
@@ -332,7 +334,7 @@ static void           HoldActor(Actor*, ScenePlacement world);
 **Setting several world transforms.** `SetWorldTransforms(span<WorldTransformEdit{element, world}>, mask)` applies edits in order, so parents go before children; `SetWorldTransform` is the one-edit case. Each edit is measured against the evaluated transforms, so it evaluates once up front, and between edits only when `IsAffectedByEdits` says the edits since the last evaluation may have moved what the next one reads. That's when:
 - the target's actor (or the actor a target locator ultimately hangs from) had its placement edited,
 - an edited bone is an ancestor-or-self of the target bone, or of the bone a target locator hangs from,
-- or that bone lies under the write root of one of the actor's IK chains or spline IKs (`DescribeModifier`). Any edit counts as changing a modifier's result, since modifiers can read locators and other actors.
+- or that bone lies under a write root of one of the actor's model-space modifiers (`DescribeModifier`). Any edit counts as changing a modifier's result, since modifiers can read locators and other actors.
 
 Actor placements read nothing evaluated and never trigger it. Locator chains resolve from live values, which are always current. A full evaluation per edit made multi-selection gizmo drags scale with the selection size.
 
@@ -349,7 +351,7 @@ Actor placements read nothing evaluated and never trigger it. Locator chains res
 
 ### 2.10 Modifiers: auto-shoulder, finger controls, spline IK
 
-An actor's `modifiers` list holds every object that changes its pose after FK: IK chains, hands and spline IK. Each derives from `ModifierObject` (`Modifiers/Modifier.h`), and the rest of the model only uses that interface:
+An actor's `modifiers` list holds every object that changes its pose after FK: IK chains, hands, spline IK and corrective drivers. Each derives from `ModifierObject` (`Modifiers/Modifier.h`), and the rest of the model only uses that interface:
 
 | Member | Meaning |
 |---|---|
@@ -357,7 +359,7 @@ An actor's `modifiers` list holds every object that changes its pose after FK: I
 | `GetLocators`, `UsesLocator` | The locators it owns: removed with it, and removing one removes it. |
 | `Remap(actor, locatorMap)` | Points it at another actor and new locator ids (applying a rig). |
 | `ApplyToPose(actor)` | Pose-time: adjusts the local pose before LocalToModel (hands). |
-| `GetWriteRoot(skeleton)`, `Solve(context)` | Model-space: the bone it writes with all its descendants, and its solve in the eval plan (IK chains, spline IK). `-1` keeps it out of the plan. |
+| `GetWriteRoots(skeleton)`, `AppendBoneReads`, `Solve(context)` | Model-space: the bones it writes with all their descendants, any bones it reads besides their parents and its locators, and its solve in the eval plan (IK chains, spline IK, corrective drivers). No write roots keeps it out of the plan. |
 | `DrivesBone(parents, bone)` | Bones it fully owns while enabled. |
 | `GetSettings`, `SetSettings` | Its non-keyable settings, as a `ModifierSettings` variant. |
 
@@ -366,8 +368,8 @@ Each modifier's file (`Modifiers/IKChain`, `Hand`, `SplineIK`) also holds its de
 All of them follow the same rules:
 - **Corrections live only in the pose buffer and the model matrices**, never in live values, so they don't accumulate.
 - **`DrivesBone`** tells which bones a modifier fully owns. `IsDrivenByModifier` (formerly `IsDrivenByIK`) rejects gizmo and Properties edits to those bones; `GetDrivenBones(actor)` answers for every bone at once. Additive modifiers (finger curl, auto-shoulder) own no bones, so the bones they touch stay editable.
-- **Editing a bone with an additive offset.** `SetWorldTransform` measures the bone's offset as `offset = inverse(live) * final`, where `final` is the local rotation in the pose buffer. It then stores `live = desired * inverse(offset)`, so the offset isn't baked into the keys. For finger curl this is exact. For the shoulder, the offset is recomputed after the edit, so dragging the clavicle is close to 1:1 but not exact.
-- **Settings that aren't keyable** (shoulder bone and limits, finger setup, spline options) change through one `ModifierSettingsChange{id, before, after}`. It holds a `ModifierSettings` variant: `IKChainSettings`, `HandSettings` or `SplineIKSettings`. Applying it marks the eval plan dirty, since a modifier's write root can change.
+- **Editing a bone with an additive offset.** `SetWorldTransform` measures the bone's offset as `offset = inverse(live) * final`, where `final` is the local rotation in the pose buffer. It then stores `live = desired * inverse(offset)`, so the offset isn't baked into the keys. A translation offset (corrective drivers slide bones) is kept out the same way: `live = desired - (final - live)`. For finger curl this is exact. For the shoulder and corrective drivers, the offset is recomputed after the edit, so dragging is close to 1:1 but not exact.
+- **Settings that aren't keyable** (shoulder bone and limits, finger setup, spline options) change through one `ModifierSettingsChange{id, before, after}`. It holds a `ModifierSettings` variant: `IKChainSettings`, `HandSettings`, `SplineIKSettings` or `CorrectiveDriverSettings`. Applying it marks the eval plan dirty, since a modifier's write root can change.
 
 **Evaluation order:**
 1. `PackPose`.
@@ -552,6 +554,40 @@ A new hand's finger curls default to the Relaxed preset (by role, as below), bec
 - **Viewport:** controls are orange, and the curve is drawn as a polyline with the IK lines. A disabled spline (or one with weight 0) isn't solved, so it has no curve to draw.
 - **Properties panel:** Enabled, Weight, Twist, Stretch, Tangent Length, Orient, Root Follows Curve, Align Tip, and the control list.
 
+#### Corrective drivers
+
+`CorrectiveDriverObject{ actor, CorrectiveDriverSettings{ drivers } }`: drives a skeleton's corrective (helper) bones from the bones around them, the way the game's own animations move them. Studio otherwise leaves these bones wherever the pose put them, which is what makes Fallout 4's shoulders pinch and armpits stretch when an arm is posed by hand or by IK. An actor has at most one (`AddCorrectiveDriver` and `ApplyRig` refuse a second).
+
+**Fallout 4 only, so far.** Creation (`BuildCorrectiveDriver`) finds the human skeleton's bones by name under `#ifdef TARGET_GAME_F4`; elsewhere it fails, and the UI hides the action. The object, its file format and its UI are shared, so Starfield's corrective bones can be added as new kinds.
+
+**Drivers.** `CorrectiveDriver{ kind, mirrored, bones }`, one per kind and side, solved in list order (twists before the armpit, which swings the twist bones as the twist driver left them):
+
+| Kind | Bones (`GetCorrectiveDriverBoneCount`) | Moves | From |
+|---|---|---|---|
+| `kArmTwist` | upper arm, twist 1, twist 2 | twist 1 and 2 about the upper arm's long axis | the upper arm's twist from rest |
+| `kArmpit` | chest, upper arm, twist 1, twist 2 | twist 1 and 2: a swing and a slide | the arm's raise above its rest elevation |
+| `kRibHelper` | chest, collarbone, rib helper | the rib helper: a turn about its local Y and a slide up the chest | the collarbone's raise |
+
+On the F4 human skeleton those are `LArm_UpperArm`, `LArm_UpperTwist1/2`, `LArm_Collarbone`, `L_RibHelper` and `Chest`, and the `R` versions (`mirrored`). The Havok rig animates the twist bones and rib helpers (vanilla animations carry the helper motion baked in from the authoring rig); the `_skin` bones the body is weighted to hang under them.
+
+**Properties.** `enabled` and `weight` (0–1) on `kSelf`, and each driver's `weight` (0–2, default 1) as element *i*. A driver's strength is `weight · driver weight`, applied to its angles and slides.
+
+**Rules** (constants in `CorrectiveDriver.cpp`). They came from offline analysis of the game data, not from the game: every vanilla human animation was decoded and sampled (about 89k frames), and a body mesh (TWB-3BBB) was skinned on the skeleton to measure triangle stretch.
+- **Arm twist** (vanilla's rule): with `t` the upper arm's twist from rest about its long axis (toward twist 2), twist 1 turns by `−0.92·t` and twist 2, relative to twist 1, by `+0.46·t`. So the shoulder end of the upper arm stays untwisted, mid-bicep takes about half and the elbow end all of it. In vanilla data, twist 1 vs the upper arm's twist fits at −0.92 (r = −0.96), and twist 2 is exactly −0.5 × twist 1. Each turn is pre-multiplied (in the parent's space).
+- **Armpit** (fitted, not in vanilla): elevation is the arm's angle from straight down the spine (toward the chest's parent), in the chest's space; `d` is how far it's above the rest elevation, in degrees. Twist 1 swings back toward down, about `cross(arm, down)`, by `0.8·d / (1 + d/53.75)` degrees, and twist 2 swings forward by 0.944 of that, so the bicep keeps its direction while the armpit skin it carries stays lower. Both slide toward the top of the arm (perpendicular to it, away from down): twist 1 by `0.04·d` units and twist 2 by a further `0.027·d`. Twist 1 also slides back along the arm, toward the shoulder, by `0.015·d`, and the bicep moves with it. The slides come from a hand correction of a held-overhead pose (about 83° of raise), turned into a per-degree rule and checked by rendering at other raises; vanilla never slides the twist bones (all but three broken clips hold them at rest). They open the armpit's front skin, which linear blend skinning otherwise crushes (squeezed to a few percent of its width while stretched over 10× the other way, which smears the UVs), and let the top of the shoulder compress into a fold instead, which reads as volume. The stretch-only fit missed this, because it counted that compression as heavily as stretch; on its average a slide toward the top of the arm looks worse. Straight overhead the swing plane is undefined, so it falls back to the rest arm's plane. It's geometric, so it mirrors without `mirrored`.
+  - Why: the armpit vertices are weighted 30–60% to twist 2's skin bone, which sits mid-bicep, against the ribcage. When the arm swings far, linear blend skinning averages a point carried with the arm against one on the chest, which stretches the band between them. The fit minimizes stretch over 24 arm poses (raise 70–160°, sideways to forward, collarbone at rest or raised) with a penalty on moving the bicep off the arm. It cuts stretch by 16% on average and up to about half for sideways raises, with bicep vertices moving 0.76 units RMS (1.6 at most). Without the penalty it cuts more (22%) but visibly bends the upper arm. A higher driver weight trades the same way.
+- **Rib helper** (vanilla's rule, made symmetric): `r` is the collarbone's turn from rest about its local Y (−Y on the right). The rib helper turns about its local Y (−Y on the right) by `min(35°, 0.9·(r − 5°))` and slides up the chest by 0.087 units per degree. Vanilla's left side follows 0.7× with no cap and its right side 1.1× capped at 35°; the slide is 0.087 per degree on both. Its effect on stretch is small: the body weights it lightly.
+- Raising the collarbone makes armpit stretch worse (the shoulder lifts away from skin weighted to the ribcage), so these drivers don't move it.
+
+**Solve.** In the eval plan, after the IK chains that move the arms (it reads the collarbone and upper arm they write). Each driver measures the pose's local values and the model matrices, writes its bones into the pose buffer, and runs `RunLocalToModel` from the bone it changed. Like every additive modifier it owns no bones (`DrivesBone` is false), so the twist bones and rib helpers stay editable, and keys on them add to what the drivers do.
+
+`DescribeModifier`: the write roots are each driver's twist 1 or rib helper; the reads are the upper arm (arm twist), the chest and upper arm (armpit), and the chest and collarbone (rib helper).
+
+**UI**
+- **Create:** **Add Corrective Drivers** on the Create menu or an actor's context menu, with that actor active.
+- **Properties panel:** Enabled, Weight, and a weight per driver ("Left Arm Twist", "Right Armpit"...).
+- **Outliner:** a leaf under its actor. **Timeline:** driver lanes are labelled "<driver> Weight".
+
 ### 2.11 Baking
 
 Baking samples the active sequence at a fixed rate through the normal evaluation, so an export is what playback shows: sampling, hands, FK, the eval plan. The result is one actor's final local pose (after every modifier) at each sample, as a `RawOzzAnimation`. That's the format-neutral intermediate the GLTF importer also produces, so ProjectEx knows nothing about file formats.
@@ -637,7 +673,7 @@ It can be applied to any actor with a compatible skeleton id. Bones are matched 
 1. **The importer checks the actor.** It must be bound, and its skeleton id must be compatible with the rig's (`Settings::AreSkeletonsCompatible`), or nothing changes. A gender mismatch is only a warning.
 2. **It resolves names.** Bones are resolved against the actor's skeleton, and objects are built with the importer's `BuildObject`, the same code that opens projects. A modifier whose bones don't fit is dropped with a warning, as when opening a project (§4.4). A missing locator parent bone falls back to the actor root.
 3. **`ProjectEx::ApplyRig` makes one commit, "Apply rig":**
-   - **Selection.** Keeps the modifiers of the types in `RigOptions` (`ikChains`, `hands`, `splineIKs`), and only the locators those modifiers use.
+   - **Selection.** Keeps the modifiers of the types in `RigOptions` (`ikChains`, `hands`, `splineIKs`, `correctiveDrivers`), and only the locators those modifiers use. Corrective drivers are skipped, with a warning, when the actor still has its own.
    - **Left-out locators.** A kept locator parented to a left-out one takes that locator's parent, with both transforms combined.
    - **New ids.** Every kept object gets a new id, and the rig's actor id maps to the target actor.
    - **Placement.** Scene-space locators are placed at `ToMatrix(placement) * stored`, as defaults and live values.
@@ -864,7 +900,7 @@ During an interaction, only Escape (cancel) is handled.
 
 ---
 
-## 4. File format (`.nafproject`, version 7)
+## 4. File format (`.nafproject`, version 8)
 
 Files live in `<Data path>/Projects/<name>.nafproject` (`Util::String::GetDataPath()`).
 
@@ -927,7 +963,10 @@ value: float 4 | bool 1 | Float3 12 | Quaternion 16 (xyzw)
       "aimAxes": [[..3], ...], "upAxes": [[..3], ...],        // one per bone
       "controls": [6, 7, 8], "controlAxes": [ { "aim": [..3], "up": [..3] }, ... ],
       "rootFollowsCurve": false, "alignTip": true,
-      "defaults": { "weight": 1, "twist": 0, "stretch": 0, "tangentLength": 1, "orient": 1, "enabled": true } }  // orient: optional
+      "defaults": { "weight": 1, "twist": 0, "stretch": 0, "tangentLength": 1, "orient": 1, "enabled": true } },  // orient: optional
+    { "id": 10, "type": "correctiveDriver", "name": "...", "actor": 1,  // v8
+      "drivers": [ { "kind": "armTwist|armpit|ribHelper", "mirrored": false, "bones": ["LArm_UpperArm", "LArm_UpperTwist1", "LArm_UpperTwist2"] } ],
+      "defaults": { "weight": 1, "enabled": true, "driverWeights": [1] } }  // one per driver
   ],
   "sequences": [
     { "id": 1, "name": "Sequence 1", "frameRate": 30, "frameCount": 30, "loopSmoothing": false,
@@ -942,7 +981,8 @@ value: float 4 | bool 1 | Float3 12 | Quaternion 16 (xyzw)
 ```
 
 - **Bones are referenced by name** everywhere, so a skeleton whose joints were reordered still loads.
-- **Hand finger properties** (in tracks, `loopSmoothedProperties`, `bezierModes` and `liveValues`) use `"finger": <index>` in place of `"bone"`.
+- **Hand finger properties** (in tracks, `loopSmoothedProperties`, `bezierModes` and `liveValues`) use `"finger": <index>` in place of `"bone"`, and **corrective driver weights** use `"driver": <index>`. The importer keeps either as `FileProperty::element`.
+- **Corrective drivers** whose bones are missing on the bound skeleton are dropped one by one with a warning; the object is removed only when none are left.
 - **Binding hint:** stored as plugin plus local form ID, so it survives load-order changes. Light plugins (0xFE) mask to 0xFFF, others to 0xFFFFFF. Runtime forms (0xFF) store only `formId`.
 - **`liveValues`** holds only values that can't be recreated from defaults plus sampling:
   - edited properties, and
@@ -1014,7 +1054,7 @@ StudioProjectImport::Build(pending, span<Actor*> oneActorPerSlot) -> expected<Re
 
 Elements are written by bone name. Unknown elements are skipped on read, and enum values are clamped.
 
-### 4.6 Rig files (`.nafrig`, rig version 2)
+### 4.6 Rig files (`.nafrig`, rig version 3)
 
 **Container**
 - The same container as a project (§4.1), with magic `"NAFSTRIG"`, its own version (`kRigVersion`), and no key blob.
@@ -1118,7 +1158,7 @@ The bulk-edit and per-frame costs listed here before are fixed: the open transac
 ## 8. Extension points
 
 - **Cutscene editor:** sequences are already swappable timeline sets. A cutscene would be an ordered list of sequence references plus camera tracks. Camera would be a new object type with transform properties, saved as a new `"type"`.
-- **Procedural graph drivers:** derive from `ModifierObject` (§2.10), add an `ObjectType`, and give it a `Build*` function for `ProjectEx` to record. A model-space modifier implements `GetWriteRoot` and `Solve`; the eval plan handles ordering and cycles. A local-space, additive one implements `ApplyToPose` instead, which runs before LocalToModel. Bones it fully owns go in `DrivesBone`, and the locators it owns in `GetLocators` and `Remap`. Non-keyable settings go in the `ModifierSettings` variant. Outside the model, modifier types are still named in the file format (`WriteObject`, `ReadObjectData`, `BuildObject` and the importer's checks), `RigOptions`, and the UI's per-type views (the properties panel, the outliner's listing and context menus, `GetElementProperties`).
+- **Procedural graph drivers:** derive from `ModifierObject` (§2.10), add an `ObjectType`, and give it a `Build*` function for `ProjectEx` to record. A model-space modifier implements `GetWriteRoots` (and `AppendBoneReads` for inputs that aren't its write roots' parents or its locators) and `Solve`; the eval plan handles ordering and cycles. A local-space, additive one implements `ApplyToPose` instead, which runs before LocalToModel. Bones it fully owns go in `DrivesBone`, and the locators it owns in `GetLocators` and `Remap`. Non-keyable settings go in the `ModifierSettings` variant. Outside the model, modifier types are still named in the file format (`WriteObject`, `ReadObjectData`, `BuildObject` and the importer's checks), `RigOptions`, and the UI's per-type views (the properties panel, the outliner's listing and context menus, `GetElementProperties`).
 - **Furniture and props:** a new object type with a transform (like a locator) that can be bound to a reference, held through placement like actors.
 - **Manual tangents:** add a `TangentMode` value, skip it in `RegenerateTangents`, and serialize its tangents after the key value (with a version bump). In Continuous mode, a manual key would be a fixed row: its velocity becomes a boundary condition for the runs on either side.
 - **Runtime keybinds:** replace the table in `GetActionChord` (`UI/Studio/Actions.cpp`).

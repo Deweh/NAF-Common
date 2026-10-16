@@ -18,7 +18,7 @@ namespace Animation::Studio
 		[[nodiscard]] bool UsesLocator(ObjectId a_locator) const override { return a_locator == effector || a_locator == pole; }
 		void Remap(ObjectId a_actor, const std::function<ObjectId(ObjectId)>& a_locator) override;
 		// The upper bone, or the shoulder when it has a valid one.
-		[[nodiscard]] int32_t GetWriteRoot(const ozz::animation::Skeleton& a_skeleton) const override;
+		[[nodiscard]] std::vector<int32_t> GetWriteRoots(const ozz::animation::Skeleton& a_skeleton) const override;
 		void Solve(ModifierContext& a_context) override;
 		// The path from the upper bone to the end bone, while enabled.
 		[[nodiscard]] bool DrivesBone(ozz::span<const int16_t> a_parents, int32_t a_bone) const override;

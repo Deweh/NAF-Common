@@ -19,7 +19,8 @@ namespace Animation::Studio
 		kLocator,
 		kIKChain,
 		kHand,
-		kSplineIK
+		kSplineIK,
+		kCorrectiveDriver
 	};
 
 	enum class PropertyId : uint8_t
@@ -209,7 +210,31 @@ namespace Animation::Studio
 		bool operator==(const SplineIKSettings&) const = default;
 	};
 
-	using ModifierSettings = std::variant<IKChainSettings, HandSettings, SplineIKSettings>;
+	// What a corrective driver moves, and from what. The rules are specific to a skeleton (Modifiers/CorrectiveDriver.h).
+	enum class CorrectiveDriverKind : uint8_t
+	{
+		kArmTwist,  // Upper arm twist bones counter-twist the upper arm.
+		kArmpit,    // Upper arm twist bones swing back and slide as the arm rises, spreading the armpit.
+		kRibHelper  // The rib helper follows the collarbone's raise.
+	};
+
+	struct CorrectiveDriver
+	{
+		CorrectiveDriverKind kind{ CorrectiveDriverKind::kArmTwist };
+		bool mirrored{ false };      // The right side. Rules that aren't geometric were measured on the left.
+		std::vector<int32_t> bones;  // Per kind; see GetCorrectiveDriverBoneRoles.
+
+		bool operator==(const CorrectiveDriver&) const = default;
+	};
+
+	struct CorrectiveDriverSettings
+	{
+		std::vector<CorrectiveDriver> drivers;  // In solve order.
+
+		bool operator==(const CorrectiveDriverSettings&) const = default;
+	};
+
+	using ModifierSettings = std::variant<IKChainSettings, HandSettings, SplineIKSettings, CorrectiveDriverSettings>;
 
 	// What the shoulder aimed at: the effector's relaxed position and the point the shoulder tracks.
 	struct ShoulderGuide
@@ -248,6 +273,12 @@ namespace Animation::Studio
 		SplineIKSettings settings;
 	};
 
+	struct CorrectiveDriverInfo
+	{
+		ObjectId actor{ kNoObject };
+		CorrectiveDriverSettings settings;
+	};
+
 	// Clipboard payload. The key's frame is part of the key.
 	struct KeyData
 	{
@@ -269,12 +300,14 @@ namespace Animation::Studio
 		bool ikChains{ true };
 		bool hands{ true };
 		bool splineIKs{ true };
+		bool correctiveDrivers{ true };
 		bool boneMask{ true };
 		bool replaceModifiers{ true };  // Removes the actor's modifiers of the applied types first.
 
 		[[nodiscard]] bool Applies(ObjectType a_type) const
 		{
-			return (a_type == ObjectType::kIKChain && ikChains) || (a_type == ObjectType::kHand && hands) || (a_type == ObjectType::kSplineIK && splineIKs);
+			return (a_type == ObjectType::kIKChain && ikChains) || (a_type == ObjectType::kHand && hands) || (a_type == ObjectType::kSplineIK && splineIKs) ||
+			       (a_type == ObjectType::kCorrectiveDriver && correctiveDrivers);
 		}
 	};
 

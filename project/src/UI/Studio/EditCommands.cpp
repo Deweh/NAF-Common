@@ -163,6 +163,31 @@ namespace UI::Studio
 		SetStatus(std::format("Finger controls created for {} finger(s).", hand ? hand->settings.fingers.size() : 0));
 	}
 
+	bool StudioSession::CanCreateCorrectiveDriversFromSelection() const
+	{
+#ifdef TARGET_GAME_F4
+		const auto active = GetActiveElement();
+		if (!active || m_project->GetObjectType(active->object) != ProjectEx::ObjectType::kActor) return false;
+		return m_project->GetSkeleton(active->object) && m_project->FindCorrectiveDriver(active->object) == ProjectEx::kNoObject;
+#else
+		return false;
+#endif
+	}
+
+	void StudioSession::CreateCorrectiveDriversFromSelection()
+	{
+		if (!CanCreateCorrectiveDriversFromSelection()) return;
+		const auto result = m_project->AddCorrectiveDriver(GetActiveElement()->object);
+		if (!result) {
+			SetStatus(result.error());
+			return;
+		}
+		Select({ *result, ProjectEx::kSelf }, SelectMode::kReplace);
+		reveal = selection.back();
+		const auto drivers = m_project->GetCorrectiveDriver(*result);
+		SetStatus(std::format("Corrective drivers added: {} driver(s).", drivers ? drivers->settings.drivers.size() : 0));
+	}
+
 	std::optional<std::tuple<ProjectEx::ElementRef, ProjectEx::ElementRef, size_t>> StudioSession::GetSplineIKSelection() const
 	{
 		auto bones = GetSelectedBones(false);

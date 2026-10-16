@@ -1,6 +1,7 @@
 #include "UI/Studio/StudioWidgets.h"
 #include "Util/Game.h"
 
+#include "Animation/Studio/Modifiers/CorrectiveDriver.h"
 #include "Animation/Studio/StudioMath.h"
 #include "Util/String.h"
 
@@ -84,9 +85,16 @@ namespace UI::Studio
 		return "";
 	}
 
-	// A hand's finger properties carry their finger's name; the hand's own Curl is the whole fist.
+	// A hand's finger properties carry their finger's name; the hand's own Curl is the whole fist. A corrective
+	// driver's weight carries its driver's name.
 	std::string GetPropertyLabel(const ProjectEx& a_project, const ProjectEx::PropertyRef& a_property)
 	{
+		if (a_property.element != ProjectEx::kSelf && a_project.GetObjectType(a_property.object) == ProjectEx::ObjectType::kCorrectiveDriver) {
+			const auto drivers = a_project.GetCorrectiveDriver(a_property.object);
+			if (drivers && a_property.element < drivers->settings.drivers.size()) {
+				return std::format("{} {}", Animation::Studio::GetCorrectiveDriverName(drivers->settings.drivers[a_property.element]), GetPropertyName(a_property.property));
+			}
+		}
 		if (a_project.GetObjectType(a_property.object) == ProjectEx::ObjectType::kHand) {
 			if (a_property.element == ProjectEx::kSelf) return a_property.property == ProjectEx::PropertyId::kCurl ? "Fist" : GetPropertyName(a_property.property);
 			const auto hand = a_project.GetHand(a_property.object);

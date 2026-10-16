@@ -32,6 +32,7 @@ namespace UI::Studio
 		kCreateIKChain,
 		kCreateFingerControls,
 		kCreateSplineIK,
+		kCreateCorrectiveDrivers,
 		kAddActor,
 		kAddLocator,
 		kFocusSelection,

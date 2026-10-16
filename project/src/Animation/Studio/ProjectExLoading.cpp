@@ -166,6 +166,11 @@ namespace Animation::Studio
 		std::vector<ObjectId> inserted;
 		for (auto& object : a_rig.objects) {
 			const ObjectId id = object->id;
+			// An actor has at most one, which the rig's doesn't replace unless replaceModifiers removed it.
+			if (object->GetType() == ObjectType::kCorrectiveDriver && FindCorrectiveDriver(a_actor) != kNoObject) {
+				result.warnings.push_back(std::format("\"{}\" was skipped: the actor already has corrective drivers.", object->name));
+				continue;
+			}
 			const bool modifier = object->GetType() != ObjectType::kLocator;
 			Record(ObjectLifetimeChange{ ObjectSnapshot{ .id = id, .object = std::move(object), .index = m_objects.size(), .modifierIndex = modifier ? actor->modifiers.size() : 0 }, true });
 			inserted.push_back(id);

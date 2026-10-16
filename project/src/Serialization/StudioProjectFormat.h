@@ -18,10 +18,11 @@
 namespace Serialization::StudioProjectFormat
 {
 	inline constexpr std::array<char, 8> kMagic{ 'N', 'A', 'F', 'S', 'T', 'U', 'D', 'O' };
-	inline constexpr uint32_t kVersion = 7;
+	inline constexpr uint32_t kVersion = 8;
 	// Version 4 only added to version 3 (hands, spline IK, IK chain shoulders), version 5 to version 4 (each finger's
 	// straighten and maxExtend, which make curl 0 flat), version 6 to version 5 (IK chain twist distribution and
-	// shoulder neutral), and version 7 to version 6 (each sequence's bezierModes), so version 3 files still read.
+	// shoulder neutral), version 7 to version 6 (each sequence's bezierModes), and version 8 to version 7 (corrective
+	// drivers), so version 3 files still read.
 	// Version 6 also replaced the shoulder solve, so chains from older files take the default shoulderWeight and drop
 	// their reach (kShoulderSchemaVersion).
 	inline constexpr uint32_t kOldestReadableVersion = 3;
@@ -30,7 +31,7 @@ namespace Serialization::StudioProjectFormat
 
 	// Rigs (.nafrig) use the same container with no key data. Their objects use the project schema of kVersion.
 	inline constexpr std::array<char, 8> kRigMagic{ 'N', 'A', 'F', 'S', 'T', 'R', 'I', 'G' };
-	inline constexpr uint32_t kRigVersion = 2;  // Version 2 holds project schema version 6.
+	inline constexpr uint32_t kRigVersion = 3;  // Version 2 holds project schema version 6, version 3 adds corrective drivers.
 	// The first project and rig versions whose chain shoulderWeight is read as saved.
 	inline constexpr uint32_t kShoulderSchemaVersion = 6;
 	inline constexpr uint32_t kShoulderSchemaRigVersion = 2;
@@ -39,7 +40,9 @@ namespace Serialization::StudioProjectFormat
 	inline constexpr std::array<std::string_view, 14> kPropertyNames{ "translation", "rotation", "scale", "weight", "soften", "twist", "enabled",
 		"shoulderWeight", "curl", "spread", "stretch", "tangentLength", "orient", "twistDistribution" };
 	// Indexed by ProjectEx::ObjectType.
-	inline constexpr std::array<std::string_view, 5> kObjectTypeNames{ "actor", "locator", "ikChain", "hand", "splineIK" };
+	inline constexpr std::array<std::string_view, 6> kObjectTypeNames{ "actor", "locator", "ikChain", "hand", "splineIK", "correctiveDriver" };
+	// Indexed by ProjectEx::CorrectiveDriverKind.
+	inline constexpr std::array<std::string_view, 3> kCorrectiveDriverKindNames{ "armTwist", "armpit", "ribHelper" };
 	// Indexed like ProjectEx::Value.
 	inline constexpr std::array<std::string_view, 4> kValueTypeNames{ "float", "bool", "float3", "quaternion" };
 	// Indexed by ProjectEx::BezierMode.

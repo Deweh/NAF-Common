@@ -135,16 +135,22 @@ namespace Animation::Studio
 		const auto& skeleton = *actor->skeleton->data;
 
 		// Pose-time modifiers (hands) work on the local pose before the solve, so they aren't in the plan.
-		const int32_t writeRoot = modifier->GetWriteRoot(skeleton);
-		if (writeRoot < 0 || writeRoot >= skeleton.num_joints()) return false;
+		const int32_t jointCount = skeleton.num_joints();
+		auto writeRoots = modifier->GetWriteRoots(skeleton);
+		if (writeRoots.empty() || std::ranges::any_of(writeRoots, [&](int32_t a_bone) { return a_bone < 0 || a_bone >= jointCount; })) return false;
 
 		a_out.actor = actor->id;
 		a_out.skeleton = &skeleton;
-		a_out.writeRoot = writeRoot;
 		a_out.reads.clear();
-		if (const int16_t parent = skeleton.joint_parents()[writeRoot]; parent != ozz::animation::Skeleton::kNoParent) {
-			a_out.reads.emplace_back(actor->id, parent);
+		for (const int32_t root : writeRoots) {
+			if (const int16_t parent = skeleton.joint_parents()[root]; parent != ozz::animation::Skeleton::kNoParent) a_out.reads.emplace_back(actor->id, parent);
 		}
+		std::vector<int32_t> boneReads;
+		modifier->AppendBoneReads(skeleton, boneReads);
+		for (const int32_t bone : boneReads) {
+			if (bone >= 0 && bone < jointCount) a_out.reads.emplace_back(actor->id, bone);
+		}
+		a_out.writeRoots = std::move(writeRoots);
 		for (const auto locator : modifier->GetLocators()) AppendLocatorReads(locator, a_out.reads);
 		return true;
 	}
@@ -168,7 +174,7 @@ namespace Animation::Studio
 	{
 		const auto parents = a_writer.skeleton->joint_parents();
 		return std::ranges::any_of(a_reader.reads, [&](const auto& a_read) {
-			return a_read.first == a_writer.actor && IsDescendantOrSelf(parents, a_read.second, a_writer.writeRoot);
+			return a_read.first == a_writer.actor && std::ranges::any_of(a_writer.writeRoots, [&](int32_t a_root) { return IsDescendantOrSelf(parents, a_read.second, a_root); });
 		});
 	}
 
@@ -284,7 +290,8 @@ namespace Animation::Studio
 		// A modifier writing this bone, whose result any edit may have changed through its inputs.
 		ModifierAccess access;
 		for (const auto id : actor->modifiers) {
-			if (DescribeModifier(id, access) && IsDescendantOrSelf(parents, bone, access.writeRoot)) return true;
+			if (!DescribeModifier(id, access)) continue;
+			if (std::ranges::any_of(access.writeRoots, [&](int32_t a_root) { return IsDescendantOrSelf(parents, bone, a_root); })) return true;
 		}
 		return false;
 	}

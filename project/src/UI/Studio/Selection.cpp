@@ -113,6 +113,18 @@ namespace UI::Studio
 				}
 				return result;
 			}
+		case ProjectEx::ObjectType::kCorrectiveDriver:
+			{
+				std::vector<ProjectEx::PropertyRef> result{
+					{ a_element.object, ProjectEx::kSelf, PropertyId::kEnabled },
+					{ a_element.object, ProjectEx::kSelf, PropertyId::kWeight }
+				};
+				const auto drivers = m_project->GetCorrectiveDriver(a_element.object);
+				for (size_t driver = 0; drivers && driver < drivers->settings.drivers.size(); ++driver) {
+					result.push_back({ a_element.object, static_cast<uint16_t>(driver), PropertyId::kWeight });
+				}
+				return result;
+			}
 		case ProjectEx::ObjectType::kSplineIK:
 			return {
 				{ a_element.object, ProjectEx::kSelf, PropertyId::kEnabled },
@@ -159,6 +171,8 @@ namespace UI::Studio
 				return m_project->GetHand(a_id)->actor;
 			case ProjectEx::ObjectType::kSplineIK:
 				return m_project->GetSplineIK(a_id)->actor;
+			case ProjectEx::ObjectType::kCorrectiveDriver:
+				return m_project->GetCorrectiveDriver(a_id)->actor;
 			default:
 				return ProjectEx::kNoObject;
 			}

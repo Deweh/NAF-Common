@@ -52,6 +52,7 @@ namespace UI::Studio
 			"Create IK Chain",
 			"Create Finger Controls",
 			"Create Spline IK...",
+			"Add Corrective Drivers",
 			"Add Actor",
 			"Add Locator",
 			"Focus Selection"
@@ -89,6 +90,7 @@ namespace UI::Studio
 			Chord(ImGuiKey_I, kShift),         // kCreateIKChain
 			0,                                 // kCreateFingerControls
 			0,                                 // kCreateSplineIK
+			0,                                 // kCreateCorrectiveDrivers
 			Chord(ImGuiKey_A, kShift),         // kAddActor
 			Chord(ImGuiKey_L, kShift),         // kAddLocator
 			Chord(ImGuiKey_F)                  // kFocusSelection
@@ -145,6 +147,8 @@ namespace UI::Studio
 			return CanCreateFingerControlsFromSelection();
 		case Action::kCreateSplineIK:
 			return GetSplineIKSelection().has_value();
+		case Action::kCreateCorrectiveDrivers:
+			return CanCreateCorrectiveDriversFromSelection();
 		case Action::kFocusSelection:
 			return active.has_value();
 		default:
@@ -239,6 +243,9 @@ namespace UI::Studio
 			break;
 		case Action::kCreateSplineIK:
 			RequestPopup({ Popup::kCreateSplineIK });
+			break;
+		case Action::kCreateCorrectiveDrivers:
+			CreateCorrectiveDriversFromSelection();
 			break;
 		case Action::kAddActor:
 			RequestPopup({ Popup::kAddActorMenu });
