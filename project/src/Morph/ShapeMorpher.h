@@ -1,0 +1,91 @@
+#pragma once
+#include "Geometry.h"
+#include "TriFile.h"
+#include "Values.h"
+
+// Fallout 4's geometry pool and vertex format.
+#if defined TARGET_GAME_F4
+struct ID3D11DeviceContext;
+
+namespace Morph
+{
+	// Applies morphs to one actor's copy of one mesh shape, in real time.
+	//
+	// The first time a morph on the shape is non-zero, the shape gets its own vertex range in the game's geometry pool:
+	// a new renderer TriShape copied from its vertices (sharing its index buffer), its render passes cleared so they're
+	// rebuilt against the new range, and the shared TriShape released. Every actor wearing the mesh otherwise shares one
+	// range. The range is created asynchronously; morphs wait until it's on the GPU, then until the MeshDeformer has
+	// built the mesh's topology on a background thread.
+	//
+	// After that, the MeshDeformer works out the new positions and how far the surface turned; this writes positions,
+	// turns the mesh's own normals, tangents and bitangents, and uploads just the vertices that changed with
+	// UpdateSubresource. The CPU copy of the vertices stays unmorphed and is the base every update starts from, so the
+	// base includes any LooksMenu morphs baked in when the mesh was built.
+	class ShapeMorpher
+	{
+	public:
+		struct Source
+		{
+			std::shared_ptr<TriFile> file;
+			const TriFile::Shape* shape = nullptr;
+		};
+
+		ShapeMorpher(RE::BSTriShape* a_shape, std::vector<Source> a_sources);
+		ShapeMorpher(const ShapeMorpher&) = delete;
+		ShapeMorpher& operator=(const ShapeMorpher&) = delete;
+
+		// Applies the totals (lowercase names, sorted). Returns false while waiting for the vertex range or the topology,
+		// so the caller tries again next frame. Main thread, with the renderer locked.
+		bool Apply(const Values& a_totals, ID3D11DeviceContext* a_context);
+		// Whether the shape is still the one this was made for: still attached, and drawing from our range if we took it.
+		[[nodiscard]] bool IsValid() const;
+		// After morph files are re-read: the next Apply re-applies everything from the new data.
+		void SetSources(std::vector<Source> a_sources);
+
+		[[nodiscard]] RE::BSTriShape* GetShape() const { return shape.get(); }
+		void ListMorphs(std::vector<std::string>& a_out) const;
+		[[nodiscard]] size_t GetMovedCount() const { return state == State::kReady ? deformer->GetMoved().size() : 0; }
+		[[nodiscard]] bool IsTakenOver() const { return own != nullptr; }
+		// "shared", "pending", "ready" or "failed", and how many of the last totals this shape has.
+		[[nodiscard]] std::string_view GetStateName() const;
+		[[nodiscard]] size_t GetActiveCount() const { return activeCount; }
+
+	private:
+		enum class State : uint8_t
+		{
+			kShared,   // Still drawing from the shared range.
+			kPending,    // Our range is being created.
+			kPreparing,  // The deformer is being set up on a background thread.
+			kReady,
+			kFailed
+		};
+
+		bool TakeOver();
+		bool IsRangeReady() const;
+		bool Prepare();  // Reads the base vertices and starts setting up the deformer, once the range is ready.
+		void WriteVertex(uint32_t a_vertex, bool a_moved, bool a_shaded);
+		void Upload(ID3D11DeviceContext* a_context, const std::vector<uint32_t>& a_vertices);
+
+		RE::NiPointer<RE::BSTriShape> shape;
+		std::vector<Source> sources;
+		RE::BSGraphics::TriShape* own = nullptr;
+		State state = State::kShared;
+		uint32_t waitFrames = 0;
+		size_t activeCount = 0;
+
+		// Vertex layout.
+		uint32_t stride = 0;
+		uint32_t vertexCount = 0;
+		uint32_t normalOffset = 0;   // 0 if none.
+		uint32_t tangentOffset = 0;  // 0 if none.
+		bool fullPrecision = false;
+
+		std::vector<std::byte> base;  // The vertices as they were when we took the shape.
+		std::vector<std::byte> work;  // As last uploaded.
+		// Shared with the thread that sets it up, which may outlive this.
+		std::shared_ptr<MeshDeformer> deformer = std::make_shared<MeshDeformer>();
+		std::shared_future<void> preparing;
+		Values applied;
+	};
+}
+#endif

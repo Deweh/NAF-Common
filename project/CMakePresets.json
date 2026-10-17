@@ -9,6 +9,7 @@
 		{
 			"name": "common",
 			"hidden": true,
+			"binaryDir": "${sourceDir}/../build/${presetName}",
 			"cacheVariables": {
 				"BUILD_SHARED_LIBS": "OFF",
 				"ozz_build_msvc_rt_dll": "ON",
@@ -82,7 +83,7 @@
 			"name": "generator-msvc",
 			"hidden": true,
 			"inherits": "x64",
-			"generator": "Visual Studio 17 2022"
+			"generator": "Visual Studio 18 2026"
 		},
 		{
 			"name": "generator-ninja",

@@ -13,6 +13,13 @@
 #include "Jobs/IPostGenJob.h"
 #include "Physics/ModelSpaceSystem.h"
 
+namespace Morph
+{
+	class ActorMorphs;
+	class DriverRuntime;
+	struct DriverDebug;
+}
+
 namespace Animation
 {
 	class Sequencer;
@@ -141,6 +148,11 @@ namespace Animation
 
 		std::atomic<bool> requiresBaseTransforms = true;
 
+		// Corrective morphs (Morph/Drivers.h): the target's morph values (shared with Morph::Manager, which owns them) and
+		// the skeleton's drivers resolved for this graph (owned here, rebuilt when the manager's drivers change).
+		std::shared_ptr<Morph::ActorMorphs> morphs;
+		std::shared_ptr<Morph::DriverRuntime> correctives;
+
 		Graph();
 		virtual ~Graph() noexcept;
 
@@ -174,6 +186,8 @@ namespace Animation
 		uint32_t GetSyncOwnerFormID() const;
 		std::string_view GetCurrentAnimationFile() const;
 		void UpdateRestPose();
+		// Evaluates the corrective drivers on the current pose without writing anything, for the console.
+		std::vector<Morph::DriverDebug> DebugCorrectiveMorphs();
 
 	protected:
 		void AdvanceTransitionTime(float a_deltaTime);
@@ -182,6 +196,9 @@ namespace Animation
 		void UpdatePostGenJobs(float a_deltaTime, const std::span<ozz::math::SoaTransform>& a_output);
 		void PushAnimationOutput(float a_deltaTime, const std::span<ozz::math::SoaTransform>& a_output);
 		void PushRootOutput(bool a_visible);
+		// Evaluates the skeleton's corrective drivers on the pose just pushed and writes the target's corrective morphs.
+		void UpdateCorrectiveMorphs();
+		void ClearCorrectiveMorphs();
 #ifdef TARGET_GAME_SF
 		RE::NiTransform* BindRig();
 #endif
