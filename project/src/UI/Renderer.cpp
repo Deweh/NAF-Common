@@ -262,14 +262,43 @@ namespace UI
 			return false;
 		}
 
-#if defined TARGET_GAME_SF
 		bool IsGameInputMessage(UINT a_msg)
 		{
 			return a_msg == WM_INPUT ||
 			       (a_msg >= WM_KEYFIRST && a_msg <= WM_KEYLAST) ||
 			       (a_msg >= WM_MOUSEFIRST && a_msg <= WM_MOUSELAST);
 		}
-#endif
+
+		// Whether the message releases a key or mouse button. Releases still reach the game, so one held down when the
+		// overlay took the input (like the key that opened it) isn't stuck down in the game.
+		bool IsReleaseMessage(UINT a_msg, LPARAM a_lparam)
+		{
+			switch (a_msg) {
+			case WM_KEYUP:
+			case WM_SYSKEYUP:
+			case WM_LBUTTONUP:
+			case WM_RBUTTONUP:
+			case WM_MBUTTONUP:
+			case WM_XBUTTONUP:
+				return true;
+			case WM_INPUT:
+				{
+					RAWINPUT input;
+					UINT size = sizeof(input);
+					if (GetRawInputData(reinterpret_cast<HRAWINPUT>(a_lparam), RID_INPUT, &input, &size, sizeof(RAWINPUTHEADER)) == static_cast<UINT>(-1))
+						return false;
+					if (input.header.dwType == RIM_TYPEKEYBOARD)
+						return (input.data.keyboard.Flags & RI_KEY_BREAK) != 0;
+					if (input.header.dwType == RIM_TYPEMOUSE) {
+						constexpr USHORT kButtonUps = RI_MOUSE_BUTTON_1_UP | RI_MOUSE_BUTTON_2_UP | RI_MOUSE_BUTTON_3_UP | RI_MOUSE_BUTTON_4_UP | RI_MOUSE_BUTTON_5_UP;
+						return (input.data.mouse.usButtonFlags & kButtonUps) != 0;
+					}
+					return false;
+				}
+			default:
+				return false;
+			}
+		}
 
 		BOOL WINAPI ClipCursorHook(const RECT* a_rect)
 		{
@@ -313,14 +342,12 @@ namespace UI
 				return true;
 			}
 
-#if defined TARGET_GAME_SF
-			// Starfield's ControlMap has no switch to ignore keyboard and mouse input, so while the overlay has the
-			// mouse, the game doesn't get the window's input messages.
-			// TODO: verify in-game that this is enough to stop the game reacting to input.
-			if (renderer->IsMouseReleased() && IsGameInputMessage(a_msg)) {
+			// While the overlay has the mouse, the game doesn't get the window's keyboard and mouse messages. Both games
+			// read keyboard and mouse from these: Fallout 4's WinProc feeds WM_INPUT to its input devices
+			// (BSPCKeyboardDevice::ProcessWinPCRawInput). Gamepads aren't affected.
+			if (renderer->IsMouseReleased() && IsGameInputMessage(a_msg) && !IsReleaseMessage(a_msg, a_lparam)) {
 				return a_msg == WM_INPUT ? DefWindowProc(a_hwnd, a_msg, a_wparam, a_lparam) : 0;
 			}
-#endif
 
 			return CallWindowProc(renderer->m_originalWndProc, a_hwnd, a_msg, a_wparam, a_lparam);
 		}
@@ -404,12 +431,6 @@ namespace UI
 	void Renderer::SetMouseReleased(bool a_release)
 	{
 		m_mouseReleased.store(a_release, std::memory_order_release);
-
-#if defined TARGET_GAME_F4
-		if (auto* controlMap = RE::ControlMap::GetSingleton(); controlMap) {
-			controlMap->ignoreKeyboardMouse = a_release;
-		}
-#endif
 
 		ShowCursor(a_release ? TRUE : FALSE);
 

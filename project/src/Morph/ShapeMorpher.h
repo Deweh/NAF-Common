@@ -21,6 +21,10 @@ namespace Morph
 	// turns the mesh's own normals, tangents and bitangents, and uploads just the vertices that changed with
 	// UpdateSubresource. The CPU copy of the vertices stays unmorphed and is the base every update starts from, so the
 	// base includes any LooksMenu morphs baked in when the mesh was built.
+	//
+	// For a skinned shape, the deformer also gets each vertex's bone weights and, every apply, the skin's bone
+	// transforms, so it can shade crease areas on the posed mesh (MeshDeformer::SetPose). Shading there then follows
+	// the pose: while it does, Apply re-shades those vertices whenever their bones move, even if the morphs didn't.
 	class ShapeMorpher
 	{
 	public:
@@ -34,9 +38,12 @@ namespace Morph
 		ShapeMorpher(const ShapeMorpher&) = delete;
 		ShapeMorpher& operator=(const ShapeMorpher&) = delete;
 
-		// Applies the totals (lowercase names, sorted). Returns false while waiting for the vertex range or the topology,
-		// so the caller tries again next frame. Main thread, with the renderer locked.
+		// Applies the totals (lowercase names, sorted), or re-shades for the current pose if they didn't change.
+		// Returns false while waiting for the vertex range or the topology, so the caller tries again next frame. Main
+		// thread, with the renderer locked.
 		bool Apply(const Values& a_totals, ID3D11DeviceContext* a_context);
+		// Whether the shape's shading follows the pose now, so Apply should be called every frame.
+		[[nodiscard]] bool IsPoseDependent() const { return state == State::kReady && deformer->IsPoseDependent(); }
 		// Whether the shape is still the one this was made for: still attached, and drawing from our range if we took it.
 		[[nodiscard]] bool IsValid() const;
 		// After morph files are re-read: the next Apply re-applies everything from the new data.
@@ -63,6 +70,11 @@ namespace Morph
 		bool TakeOver();
 		bool IsRangeReady() const;
 		bool Prepare();  // Reads the base vertices and starts setting up the deformer, once the range is ready.
+		std::vector<SkinWeights> ReadSkin();
+		// Reads the pose bones' transforms into pose. Returns false if they can't be read; a_changed is whether they
+		// moved since the last read.
+		bool ReadPose(bool& a_changed);
+		void WriteAndUpload(ID3D11DeviceContext* a_context);
 		void WriteVertex(uint32_t a_vertex, bool a_moved, bool a_shaded);
 		void Upload(ID3D11DeviceContext* a_context, const std::vector<uint32_t>& a_vertices);
 
@@ -78,6 +90,7 @@ namespace Morph
 		uint32_t vertexCount = 0;
 		uint32_t normalOffset = 0;   // 0 if none.
 		uint32_t tangentOffset = 0;  // 0 if none.
+		uint32_t skinOffset = 0;     // 0 if not skinned.
 		bool fullPrecision = false;
 
 		std::vector<std::byte> base;  // The vertices as they were when we took the shape.
@@ -86,6 +99,8 @@ namespace Morph
 		std::shared_ptr<MeshDeformer> deformer = std::make_shared<MeshDeformer>();
 		std::shared_future<void> preparing;
 		Values applied;
+		uint32_t boneCount = 0;   // In the skin, if its weights were read.
+		std::vector<Affine> pose;  // As last read, relative to the first pose bone.
 	};
 }
 #endif

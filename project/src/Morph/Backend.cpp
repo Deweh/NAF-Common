@@ -19,6 +19,7 @@ namespace Morph::Backend
 			uint64_t dataGeneration = UINT64_MAX;
 			bool pending = false;    // A shape is waiting for its vertex range or its topology.
 			bool needsBind = false;  // A morph file was still loading at the last bind.
+			bool posed = false;      // A shape's shading follows the pose, so it's visited every frame.
 			std::vector<std::unique_ptr<ShapeMorpher>> shapes;
 		};
 
@@ -37,6 +38,29 @@ namespace Morph::Backend
 		{
 			static State state;
 			return state;
+		}
+
+		// Whether the actor's 3D is on screen: its root fade node passed culling this frame or the last, and isn't faded
+		// out. The culling pass stamps the frame number on each fade node it doesn't cull (BSFadeNode::OnVisible, from
+		// BSCullingGroup::ProcessNodeCuller, before it looks at fading), and the game's animation scheduler counts a
+		// reference stamped no earlier than the previous frame as visible (ShouldUpdateFadeNode). OnVisible doesn't keep
+		// the stamp while fading is off, or on a node that ignores fading once it's fully faded in, so those count as
+		// visible. Faded out is as BSFadeNode::IsVisible has it. Main thread.
+		bool IsVisible(RE::Actor* a_actor)
+		{
+			static REL::Relocation<const int32_t*> frame{ REL::ID(734919) };      // Incremented by Main::OnIdle.
+			static REL::Relocation<const bool*> fadeUpdates{ REL::ID(1445134) };  // Whether OnVisible updates fading.
+			static REL::Relocation<const bool*> fadeHides{ REL::ID(1220201) };    // Whether a faded-out node is hidden.
+			constexpr uint64_t kIgnoreFade = 1ull << 15;
+
+			auto root = a_actor ? a_actor->Get3D(false) : nullptr;
+			auto fade = root ? root->IsFadeNode() : nullptr;
+			if (!fade)
+				return true;
+			const bool ignoresFade = (fade->GetFlags() & kIgnoreFade) != 0;
+			if (!ignoresFade && *fadeHides && fade->currentFade <= 0.0f)
+				return false;
+			return ignoresFade || !*fadeUpdates || fade->frameCounter >= *frame - 1;
 		}
 
 		const RE::BSFixedString& GetBodyTriKey()
@@ -211,21 +235,29 @@ namespace Morph::Backend
 				const bool wasAttached = attached.contains(a_formId);
 				if (existing != state.actors.end()) {
 					const auto& e = existing->second;
-					if (!e.pending && !wasAttached && e.appliedVersion == version && e.dataGeneration == state.dataGeneration)
+					if (!e.pending && !e.posed && !wasAttached && e.appliedVersion == version && e.dataGeneration == state.dataGeneration)
 						return;
 				}
 				auto actor = RE::TESForm::GetFormByID<RE::Actor>(a_formId);
+				// Posed shading follows the pose, so it's redone every frame, but only while the actor is visible.
+				if (existing != state.actors.end()) {
+					const auto& e = existing->second;
+					if (!e.pending && !wasAttached && e.appliedVersion == version && e.dataGeneration == state.dataGeneration && !IsVisible(actor))
+						return;
+				}
 				auto entry = Prepare(state, a_formId, actor, wasAttached);
 				if (!entry)
 					return;
 				const auto totals = a_morphs->GetTotals();
-				bool pending = false;
+				bool pending = false, posed = false;
 				for (auto& shape : entry->shapes) {
 					if (!shape->Apply(totals, context))
 						pending = true;
+					posed = posed || shape->IsPoseDependent();
 				}
 				entry->appliedVersion = version;
 				entry->pending = pending || entry->needsBind;
+				entry->posed = posed;
 			});
 		}
 

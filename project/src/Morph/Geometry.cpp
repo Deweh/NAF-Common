@@ -23,6 +23,54 @@ namespace Morph
 			const auto axis = Cross(a_from, a_to);
 			return a_v * c + Cross(axis, a_v) + axis * (Dot(axis, a_v) / (1.0f + c));
 		}
+
+		// The rotation taking unit a_from toward unit a_to, by a_amount (0 to 1) of the angle between them.
+		Mat3 RotationToward(const Vec3& a_from, const Vec3& a_to, float a_amount)
+		{
+			const auto axis = Cross(a_from, a_to);
+			const float s = std::sqrt(Dot(axis, axis));
+			const float c = Dot(a_from, a_to);
+			if (s < 1e-6f || a_amount <= 0.0f)
+				return {};
+			const float angle = std::atan2(s, c) * (std::min)(a_amount, 1.0f);
+			const auto k = axis * (1.0f / s);
+			const float ca = std::cos(angle), sa = std::sin(angle), t = 1.0f - ca;
+			return { { { ca + k.x * k.x * t, -k.z * sa + k.x * k.y * t, k.y * sa + k.x * k.z * t },
+				{ k.z * sa + k.y * k.x * t, ca + k.y * k.y * t, -k.x * sa + k.y * k.z * t },
+				{ -k.y * sa + k.z * k.x * t, k.x * sa + k.z * k.y * t, ca + k.z * k.z * t } } };
+		}
+
+		// A vertex counts as skinned by one bone at this weight or more.
+		constexpr float kRigidWeight = 0.99f;
+		constexpr uint16_t kBlended = 0xFFFF;
+	}
+
+	Mat3 Mat3::operator*(const Mat3& a) const
+	{
+		Mat3 r;
+		for (int i = 0; i < 3; i++) {
+			const auto& row = rows[i];
+			r.rows[i] = a.rows[0] * row.x + a.rows[1] * row.y + a.rows[2] * row.z;
+		}
+		return r;
+	}
+
+	Mat3 Mat3::Inverse() const
+	{
+		const auto& [a, b, c] = rows;
+		const auto c0 = Cross(b, c), c1 = Cross(c, a), c2 = Cross(a, b);
+		const float det = Dot(a, c0);
+		if (std::abs(det) < 1e-12f)
+			return {};
+		const float inv = 1.0f / det;
+		// The inverse's columns are the cross products, over the determinant.
+		return { { { c0.x * inv, c1.x * inv, c2.x * inv }, { c0.y * inv, c1.y * inv, c2.y * inv }, { c0.z * inv, c1.z * inv, c2.z * inv } } };
+	}
+
+	Affine Affine::Inverse() const
+	{
+		const auto inv = linear.Inverse();
+		return { inv, inv * (translation * -1.0f) };
 	}
 
 	Vec3 Normalized(const Vec3& a)
@@ -31,12 +79,13 @@ namespace Morph
 		return length > 1e-12f ? a * (1.0f / length) : a;
 	}
 
-	void MeshDeformer::Init(std::vector<Vec3> a_restPositions, const std::vector<uint32_t>& a_triangles)
+	void MeshDeformer::Init(std::vector<Vec3> a_restPositions, const std::vector<uint32_t>& a_triangles, std::vector<SkinWeights> a_skin)
 	{
 		rest = std::move(a_restPositions);
 		current = rest;
 		const uint32_t vertexCount = static_cast<uint32_t>(rest.size());
 		accum.assign(vertexCount, {});
+		strength.assign(vertexCount, 0.0f);
 		vertexMark.assign(vertexCount, 0);
 		moved.clear();
 		shaded.clear();
@@ -92,6 +141,135 @@ namespace Morph
 		currentGroupNormal = restGroupNormal;
 		groupMark.assign(groupCount, 0);
 		hasTopology = true;
+
+		// Posed shading: find the groups whose surroundings (every vertex of their triangles) aren't all skinned by one
+		// bone, and the bones skinning those surroundings.
+		if (a_skin.size() != vertexCount)
+			return;
+		skin = std::move(a_skin);
+		std::vector<uint16_t> rigidBone(vertexCount, kBlended);
+		for (uint32_t v = 0; v < vertexCount; v++) {
+			for (int i = 0; i < 4; i++) {
+				if (skin[v].weights[i] >= kRigidWeight)
+					rigidBone[v] = skin[v].bones[i];
+			}
+		}
+		groupBlended.assign(groupCount, 0);
+		std::array<bool, 256> used{};
+		for (uint32_t g = 0; g < groupCount; g++) {
+			uint32_t bone = UINT32_MAX;
+			bool blended = false;
+			for (uint32_t m = groupStart[g]; m < groupStart[g + 1] && !blended; m++) {
+				const uint32_t member = groupMembers[m];
+				for (uint32_t t = vertexTriStart[member]; t < vertexTriStart[member + 1] && !blended; t++) {
+					for (int k = 0; k < 3; k++) {
+						const uint16_t b = rigidBone[triangles[vertexTris[t] * 3 + k]];
+						if (b == kBlended || (bone != UINT32_MAX && b != bone))
+							blended = true;
+						bone = b;
+					}
+				}
+			}
+			if (!blended)
+				continue;
+			groupBlended[g] = 1;
+			for (uint32_t m = groupStart[g]; m < groupStart[g + 1]; m++) {
+				const uint32_t member = groupMembers[m];
+				for (uint32_t t = vertexTriStart[member]; t < vertexTriStart[member + 1]; t++) {
+					for (int k = 0; k < 3; k++) {
+						const auto& w = skin[triangles[vertexTris[t] * 3 + k]];
+						for (int i = 0; i < 4; i++) {
+							if (w.weights[i] > 0.0f)
+								used[w.bones[i]] = true;
+						}
+					}
+				}
+			}
+		}
+		for (uint32_t b = 0; b < used.size(); b++) {
+			if (used[b])
+				poseBones.push_back(static_cast<uint8_t>(b));
+		}
+		posedTurn.resize(vertexCount);
+		usesPosedTurn.assign(vertexCount, 0);
+		skinned.resize(vertexCount);
+		posedCurrent.resize(vertexCount);
+		skinMark.assign(vertexCount, 0);
+	}
+
+	void MeshDeformer::SetPose(const std::vector<Affine>& a_bones)
+	{
+		pose = a_bones;
+	}
+
+	bool MeshDeformer::CanPose() const
+	{
+		return hasTopology && !poseBones.empty() && pose.size() > poseBones.back();
+	}
+
+	void MeshDeformer::Skin(uint32_t a_vertex, uint32_t a_stamp)
+	{
+		if (skinMark[a_vertex] == a_stamp)
+			return;
+		skinMark[a_vertex] = a_stamp;
+		Affine a{ Mat3{ { {}, {}, {} } }, {} };
+		const auto& w = skin[a_vertex];
+		for (int i = 0; i < 4; i++) {
+			if (w.weights[i] <= 0.0f)
+				continue;
+			const auto& bone = pose[w.bones[i]];
+			a.linear += bone.linear * w.weights[i];
+			a.translation += bone.translation * w.weights[i];
+		}
+		skinned[a_vertex] = a;
+		posedCurrent[a_vertex] = a * current[a_vertex];
+	}
+
+	void MeshDeformer::ShadePosed(uint32_t a_group, float a_strength, uint32_t a_stamp)
+	{
+		for (uint32_t m = groupStart[a_group]; m < groupStart[a_group + 1]; m++) {
+			const uint32_t member = groupMembers[m];
+			for (uint32_t t = vertexTriStart[member]; t < vertexTriStart[member + 1]; t++) {
+				for (int k = 0; k < 3; k++) Skin(triangles[vertexTris[t] * 3 + k], a_stamp);
+			}
+		}
+		// Plain skinning doesn't turn a crease's frames the way it bends its surface (that's why it folds), so the turn
+		// isn't measured from the posed rest surface: it goes from where the game would skin the rest normal to the
+		// posed, morphed surface, by as much as the morphs here are on. At full strength the result is the sculpt's own
+		// surface; at 0, plain skinning. It's carried back through each vertex's skinning, since the game skins the
+		// written frame by the same transform.
+		const auto& linear = skinned[groupMembers[groupStart[a_group]]].linear;
+		const auto skinnedNormal = Normalized(linear * restGroupNormal[a_group]);
+		const auto turn = RotationToward(skinnedNormal, GroupNormal(a_group, posedCurrent), a_strength);
+		for (uint32_t m = groupStart[a_group]; m < groupStart[a_group + 1]; m++) {
+			const uint32_t member = groupMembers[m];
+			const auto& linear = skinned[member].linear;
+			posedTurn[member] = linear.Inverse() * turn * linear;
+			usesPosedTurn[member] = 1;
+		}
+	}
+
+	void MeshDeformer::ClearPosed()
+	{
+		for (uint32_t g : posedGroups) {
+			for (uint32_t m = groupStart[g]; m < groupStart[g + 1]; m++) usesPosedTurn[groupMembers[m]] = 0;
+		}
+		posedGroups.clear();
+		posedStrength.clear();
+	}
+
+	void MeshDeformer::Reshade()
+	{
+		dirty.clear();
+		if (posedGroups.empty() || !CanPose())
+			return;
+		const uint32_t stamp = NextStamp(skinStamp, skinMark);
+		for (size_t i = 0; i < posedGroups.size(); i++) {
+			const uint32_t g = posedGroups[i];
+			ShadePosed(g, posedStrength[i], stamp);
+			for (uint32_t m = groupStart[g]; m < groupStart[g + 1]; m++) dirty.push_back(groupMembers[m]);
+		}
+		std::ranges::sort(dirty);
 	}
 
 	Vec3 MeshDeformer::GroupNormal(uint32_t a_group, const std::vector<Vec3>& a_positions) const
@@ -123,9 +301,11 @@ namespace Morph
 				if (vertexMark[v] != stamp) {
 					vertexMark[v] = stamp;
 					accum[v] = {};
+					strength[v] = 0.0f;
 					nowMoved.push_back(v);
 				}
 				accum[v] += deltas->offsets[i] * value;
+				strength[v] += std::abs(value);
 			}
 		}
 		for (uint32_t v : moved) {
@@ -156,8 +336,30 @@ namespace Morph
 					}
 				}
 			}
+			// Groups in blended areas are shaded on the posed mesh when there's a pose (see SetPose).
+			ClearPosed();
+			const bool canPose = CanPose();
+			const uint32_t poseStamp = canPose ? NextStamp(skinStamp, skinMark) : 0;
 			for (uint32_t g : ring) {
-				currentGroupNormal[g] = GroupNormal(g, current);
+				if (canPose && groupBlended[g]) {
+					// How much the morphs here are on: the most on any vertex of the group's triangles.
+					float s = 0.0f;
+					for (uint32_t m = groupStart[g]; m < groupStart[g + 1]; m++) {
+						const uint32_t member = groupMembers[m];
+						for (uint32_t t = vertexTriStart[member]; t < vertexTriStart[member + 1]; t++) {
+							for (int k = 0; k < 3; k++) {
+								const uint32_t v = triangles[vertexTris[t] * 3 + k];
+								if (vertexMark[v] == stamp)
+									s = (std::max)(s, strength[v]);
+							}
+						}
+					}
+					ShadePosed(g, s, poseStamp);
+					posedGroups.push_back(g);
+					posedStrength.push_back(s);
+				} else {
+					currentGroupNormal[g] = GroupNormal(g, current);
+				}
 				for (uint32_t m = groupStart[g]; m < groupStart[g + 1]; m++) shaded.push_back(groupMembers[m]);
 			}
 			std::ranges::sort(shaded);
@@ -173,6 +375,8 @@ namespace Morph
 	{
 		if (!hasTopology)
 			return a_restDirection;
+		if (!usesPosedTurn.empty() && usesPosedTurn[a_vertex])
+			return Normalized(posedTurn[a_vertex] * a_restDirection);
 		const uint32_t g = group[a_vertex];
 		return Normalized(RotateBetween(restGroupNormal[g], currentGroupNormal[g], a_restDirection));
 	}

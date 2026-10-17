@@ -104,6 +104,86 @@ namespace Morph
 			const float scaled = std::round((std::clamp(a_value, -1.0f, 1.0f) + 1.0f) * 0.5f * 255.0f);
 			return static_cast<std::byte>(static_cast<uint8_t>(scaled));
 		}
+
+		// BSSkin::Instance and BSSkin::BoneData, which CommonLibF4 doesn't define (layout as in F4SE's BSSkin.h, checked
+		// against BSSkin::Instance::Instance and UpdateModelBound and BSSkin::BoneData::Set).
+		template <class T>
+		struct ArrayView
+		{
+			T* data;
+			uint32_t capacity;
+			uint32_t pad0C;
+			uint32_t size;
+			uint32_t pad14;
+		};
+		static_assert(sizeof(ArrayView<void*>) == 0x18);
+
+		struct SkinBoneData
+		{
+			struct Bone
+			{
+				RE::NiBound bound;          // 00
+				RE::NiTransform skinToBone;  // 10
+			};
+			static_assert(sizeof(Bone) == 0x50);
+
+			std::byte object[0x10];  // NiObject
+			ArrayView<Bone> bones;   // 10
+		};
+
+		struct SkinInstance
+		{
+			std::byte object[0x10];                         // NiObject
+			ArrayView<RE::NiNode*> bones;                   // 10
+			ArrayView<RE::NiTransform*> worldTransforms;    // 28
+			SkinBoneData* boneData;                         // 40
+			RE::NiAVObject* rootNode;                       // 48
+		};
+		static_assert(offsetof(SkinInstance, boneData) == 0x40);
+
+		// The game applies a transform as p' = scale * (p * rotate) + translate, with p a row vector (see
+		// BSSkin::Instance::UpdateModelBound and GetWorldToSkinTransform), so the matrix acting on column vectors is
+		// rotate's transpose.
+		Affine ToAffine(const RE::NiTransform& a_transform)
+		{
+			Affine a;
+			const auto& e = a_transform.rotate.entry;
+			for (int r = 0; r < 3; r++) a.linear.rows[r] = Vec3{ e[0][r], e[1][r], e[2][r] } * a_transform.scale;
+			a.translation = { a_transform.translate.x, a_transform.translate.y, a_transform.translate.z };
+			return a;
+		}
+
+		const SkinInstance* GetSkin(RE::BSTriShape* a_shape, uint32_t a_boneCount)
+		{
+			auto skin = reinterpret_cast<const SkinInstance*>(a_shape->skinInstance.get());
+			if (!skin || !skin->boneData || !skin->worldTransforms.data || !skin->boneData->bones.data)
+				return nullptr;
+			if (skin->worldTransforms.size != a_boneCount || skin->boneData->bones.size != a_boneCount)
+				return nullptr;
+			return skin;
+		}
+
+		// A bone's skinning transform now: skin space to its bind, then to where the bone is. The bone's world transform
+		// is read through the skin's pointer to it, as the game does: with a flattened bone tree, it isn't the node's.
+		bool GetBoneTransform(const SkinInstance* a_skin, uint32_t a_bone, Affine& a_out)
+		{
+			auto world = a_skin->worldTransforms.data[a_bone];
+			if (!world)
+				return false;
+			a_out = ToAffine(*world) * ToAffine(a_skin->boneData->bones.data[a_bone].skinToBone);
+			return true;
+		}
+
+		bool Differs(const Affine& a, const Affine& b)
+		{
+			constexpr float kLinear = 1e-4f, kTranslation = 1e-3f;
+			const auto apart = [](const Vec3& x, const Vec3& y, float e) { return std::abs(x.x - y.x) > e || std::abs(x.y - y.y) > e || std::abs(x.z - y.z) > e; };
+			for (int r = 0; r < 3; r++) {
+				if (apart(a.linear.rows[r], b.linear.rows[r], kLinear))
+					return true;
+			}
+			return apart(a.translation, b.translation, kTranslation);
+		}
 	}
 
 	ShapeMorpher::ShapeMorpher(RE::BSTriShape* a_shape, std::vector<Source> a_sources) :
@@ -115,6 +195,7 @@ namespace Morph
 		fullPrecision = desc.HasFlag(Vertex::VF_FULLPREC);
 		normalOffset = desc.HasFlag(Vertex::VF_NORMAL) ? desc.GetAttributeOffset(Vertex::VA_NORMAL) : 0;
 		tangentOffset = desc.HasFlag(Vertex::VF_TANGENT) ? desc.GetAttributeOffset(Vertex::VA_BINORMAL) : 0;
+		skinOffset = desc.HasFlag(Vertex::VF_SKINNED) ? desc.GetAttributeOffset(Vertex::VA_SKINNING) : 0;
 	}
 
 	std::string_view ShapeMorpher::GetStateName() const
@@ -210,19 +291,98 @@ namespace Morph
 			triangles.assign(indices, indices + size_t(triCount) * 3);
 		}
 
+		auto skin = normalOffset ? ReadSkin() : std::vector<SkinWeights>{};
+
 		// Welding and the triangle tables take a few milliseconds on a body, so they're built off the main thread.
 		auto promise = std::make_shared<std::promise<void>>();
 		preparing = promise->get_future().share();
-		std::thread([promise, deformer = deformer, positions = std::move(positions), triangles = std::move(triangles), name = std::string{ shape->name.c_str() }, hasNormals = normalOffset != 0,
-						vertices = vertexCount, triCount]() mutable {
+		std::thread([promise, deformer = deformer, positions = std::move(positions), triangles = std::move(triangles), skin = std::move(skin), name = std::string{ shape->name.c_str() },
+						hasNormals = normalOffset != 0, vertices = vertexCount, triCount]() mutable {
 			const auto start = std::chrono::steady_clock::now();
-			deformer->Init(std::move(positions), triangles);
+			deformer->Init(std::move(positions), triangles, std::move(skin));
 			if (hasNormals && !deformer->HasTopology())
 				logger::warn("Morphs: no usable triangles for '{}'; its normals won't follow its morphs.", name);
-			logger::info("Morphs: '{}' has its own vertex range ({} vertices, {} triangles, {} weld groups; set up in {:.1f} ms).", name, vertices, triCount, deformer->GetGroupCount(),
-				std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+			logger::info("Morphs: '{}' has its own vertex range ({} vertices, {} triangles, {} weld groups, {} bones for posed shading; set up in {:.1f} ms).", name, vertices, triCount,
+				deformer->GetGroupCount(), deformer->GetPoseBones().size(), std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
 			promise->set_value();
 		}).detach();
+		return true;
+	}
+
+	std::vector<SkinWeights> ShapeMorpher::ReadSkin()
+	{
+		auto raw = reinterpret_cast<const SkinInstance*>(shape->skinInstance.get());
+		if (!skinOffset || !raw || !raw->boneData)
+			return {};
+		const uint32_t bones = raw->worldTransforms.size;
+		if (bones == 0 || bones > 256 || !GetSkin(shape.get(), bones)) {
+			logger::warn("Morphs: the skin of '{}' isn't laid out as expected; its creases will be shaded unposed.", shape->name.c_str());
+			return {};
+		}
+
+		// Four half-float weights, then four bone indices.
+		std::vector<SkinWeights> skin(vertexCount);
+		for (uint32_t v = 0; v < vertexCount; v++) {
+			const std::byte* data = base.data() + size_t(v) * stride + skinOffset;
+			HALF h[4];
+			std::memcpy(h, data, sizeof(h));
+			auto& w = skin[v];
+			float total = 0.0f;
+			for (int i = 0; i < 4; i++) {
+				w.bones[i] = std::to_integer<uint8_t>(data[8 + i]);
+				w.weights[i] = (std::max)(XMConvertHalfToFloat(h[i]), 0.0f);
+				if (w.bones[i] >= bones)
+					w.weights[i] = 0.0f;
+				total += w.weights[i];
+			}
+			if (total <= 0.0f)
+				return {};
+			for (auto& weight : w.weights) weight /= total;
+		}
+
+		// A check that skinning is read the way the game does it: the skinned mesh should sit inside its bound.
+		std::vector<Affine> transforms(bones);
+		for (uint32_t b = 0; b < bones; b++) {
+			if (!GetBoneTransform(raw, b, transforms[b]))
+				transforms[b] = {};
+		}
+		Vec3 centre{};
+		for (uint32_t v = 0; v < vertexCount; v++) {
+			const auto p = ReadPosition(base.data() + size_t(v) * stride, fullPrecision);
+			Vec3 skinned{};
+			for (int i = 0; i < 4; i++) skinned += (transforms[skin[v].bones[i]] * p) * skin[v].weights[i];
+			centre += skinned * (1.0f / vertexCount);
+		}
+		const auto& bound = shape->worldBound;
+		const auto offset = centre - Vec3{ bound.center.x, bound.center.y, bound.center.z };
+		logger::info("Morphs: '{}' skins with {} bones; skinned centre is {:.1f} from its world bound's centre (radius {:.1f}).", shape->name.c_str(), bones,
+			std::sqrt(Dot(offset, offset)), bound.fRadius);
+		boneCount = bones;
+		return skin;
+	}
+
+	bool ShapeMorpher::ReadPose(bool& a_changed)
+	{
+		a_changed = false;
+		const auto& bones = deformer->GetPoseBones();
+		auto skin = bones.empty() ? nullptr : GetSkin(shape.get(), boneCount);
+		if (!skin)
+			return false;
+		// Relative to the first pose bone, so moving the whole actor isn't a change.
+		std::vector<Affine> next(boneCount);
+		Affine reference;
+		if (!GetBoneTransform(skin, bones.front(), reference))
+			return false;
+		const auto toReference = reference.Inverse();
+		for (uint8_t b : bones) {
+			Affine transform;
+			if (!GetBoneTransform(skin, b, transform))
+				return false;
+			next[b] = toReference * transform;
+		}
+		a_changed = pose.size() != next.size() || std::ranges::any_of(bones, [&](uint8_t b) { return Differs(pose[b], next[b]); });
+		if (a_changed)
+			pose = std::move(next);
 		return true;
 	}
 
@@ -279,18 +439,33 @@ namespace Morph
 			state = State::kReady;
 			applied.clear();
 		}
-		if (a_totals == applied)
+		bool poseChanged = false;
+		const bool posed = ReadPose(poseChanged);
+		if (a_totals == applied) {
+			// Same morphs: only posed shading can change, when the bones moved.
+			if (posed && poseChanged && deformer->IsPoseDependent()) {
+				deformer->SetPose(pose);
+				deformer->Reshade();
+				WriteAndUpload(a_context);
+			}
 			return true;
+		}
 		applied = a_totals;
 
+		deformer->SetPose(posed ? pose : std::vector<Affine>{});
 		deformer->Apply(active);
+		WriteAndUpload(a_context);
+		return true;
+	}
+
+	void ShapeMorpher::WriteAndUpload(ID3D11DeviceContext* a_context)
+	{
 		const auto& moved = deformer->GetMoved();
 		const auto& shaded = deformer->GetShaded();
 		std::vector<uint8_t> isMoved(vertexCount, 0);
 		for (uint32_t v : moved) isMoved[v] = 1;
 		for (uint32_t v : deformer->GetDirty()) WriteVertex(v, isMoved[v] != 0, std::ranges::binary_search(shaded, v));
 		Upload(a_context, deformer->GetDirty());
-		return true;
 	}
 
 	void ShapeMorpher::WriteVertex(uint32_t a_vertex, bool a_moved, bool a_shaded)
