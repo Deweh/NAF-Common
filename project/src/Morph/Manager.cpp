@@ -48,9 +48,4 @@ namespace Morph
 		triFiles.Clear();
 		dataGeneration.fetch_add(1, std::memory_order_release);
 	}
-
-	void UpdateActorsWithoutGraphs()
-	{
-		// See the declaration: correctives for actors without a NAF graph aren't implemented yet.
-	}
 }

@@ -8,7 +8,6 @@
 #include "Sequencer.h"
 #include "GraphManager.h"
 #include "Jobs/IKTwoBoneJob.h"
-#include "Morph/Manager.h"
 
 namespace Animation
 {
@@ -40,7 +39,6 @@ namespace Animation
 		EnableEyeTracking();
 		SetLockPosition(false);
 		SendEventInstant("AnimObjUnequip");
-		ClearCorrectiveMorphs();
 	}
 
 	void Graph::OnAnimationReady(const FileID& a_id, std::shared_ptr<IAnimationFile> a_anim)
@@ -207,8 +205,6 @@ namespace Animation
 				UpdateRestPose();
 				PushAnimationOutput(a_deltaTime, loadedData->restPose.get());
 			}
-			if (a_visible)
-				UpdateCorrectiveMorphs();
 			PERF_TIMER_END(start, updateTime);
 			PERF_TIMER_COPY_VALUE(updateTime, lastUpdateMs);
 			return;
@@ -249,7 +245,6 @@ namespace Animation
 			} else {
 				PushAnimationOutput(a_deltaTime, generatedPose);
 			}
-			UpdateCorrectiveMorphs();
 		} else {
 			if (flags.any(FLAGS::kTransitioning))
 				AdvanceTransitionTime(a_deltaTime);
@@ -484,7 +479,6 @@ namespace Animation
 				Face::Manager::GetSingleton()->OnAnimDataChange(loadedData->faceAnimData, nullptr);
 				loadedData.reset();
 			}
-			ClearCorrectiveMorphs();
 
 			flags.reset(FLAGS::kGeneratedFirstPose);
 			flags.set(FLAGS::kUnloaded3D);
@@ -1148,48 +1142,6 @@ namespace Animation
 			std::span<ozz::math::SoaTransform> restPose = loadedData->restPose.get();
 			std::copy(restPose.begin(), restPose.end(), snapshotPose.begin());
 		}
-	}
-
-	void Graph::UpdateCorrectiveMorphs()
-	{
-		if (!loadedData || !skeleton || transforms.size() != static_cast<size_t>(skeleton->data->num_joints()))
-			return;
-		auto manager = Morph::Manager::GetSingleton();
-		if (!manager->GetCorrectivesEnabled()) {
-			ClearCorrectiveMorphs();
-			return;
-		}
-		auto library = &manager->GetDrivers();
-		if (!correctives || correctives->GetGeneration() != library->GetGeneration() || correctives->GetSkeleton() != skeleton->data.get()) {
-			auto drivers = library->Get(skeleton->name);
-			correctives = Morph::DriverRuntime::Build(*skeleton, std::move(drivers), library->GetGeneration());
-		}
-		if (correctives->Empty()) {
-			ClearCorrectiveMorphs();
-			return;
-		}
-		if (!morphs)
-			morphs = manager->Get(GetTargetFormID(), true);
-
-		Morph::Values values;
-		correctives->Evaluate([&](int32_t i) { return transforms[i] == &loadedData->defaultTransform ? correctives->GetRestLocal(i) : *transforms[i]; }, values);
-		morphs->SetAll(Morph::Layer::kCorrective, "", values);
-	}
-
-	std::vector<Morph::DriverDebug> Graph::DebugCorrectiveMorphs()
-	{
-		std::vector<Morph::DriverDebug> result;
-		if (!loadedData || !correctives || transforms.size() != static_cast<size_t>(skeleton->data->num_joints()))
-			return result;
-		Morph::Values values;
-		correctives->Evaluate([&](int32_t i) { return transforms[i] == &loadedData->defaultTransform ? correctives->GetRestLocal(i) : *transforms[i]; }, values, &result);
-		return result;
-	}
-
-	void Graph::ClearCorrectiveMorphs()
-	{
-		if (morphs)
-			morphs->Clear(Morph::Layer::kCorrective);
 	}
 
 	void Graph::ResetRootTransform()

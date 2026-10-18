@@ -20,4 +20,9 @@ namespace Morph::Backend
 
 	// The actor's morphable shapes, binding them first if needed. Main thread.
 	std::vector<ShapeInfo> GetShapes(RE::Actor* a_actor);
+
+#if defined TARGET_GAME_F4
+	// Whether the actor's 3D is on screen this frame, by the test the game's animation scheduler uses. Main thread.
+	bool IsVisible(RE::Actor* a_actor);
+#endif
 }

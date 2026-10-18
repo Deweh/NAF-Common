@@ -114,7 +114,18 @@ namespace Morph
 		};
 		struct KeyHash
 		{
-			size_t operator()(const Key& k) const { return (size_t(k.x) * 73856093) ^ (size_t(k.y) * 19349663) ^ (size_t(k.z) * 83492791); }
+			// Positions widened from half floats have their low 13 bits zero, and the map picks buckets by the low bits,
+			// so the high bits are mixed down (MurmurHash3's finalizer).
+			size_t operator()(const Key& k) const
+			{
+				uint64_t h = (uint64_t(k.x) * 0x9E3779B97F4A7C15ull) ^ (uint64_t(k.y) * 0xC2B2AE3D27D4EB4Full) ^ k.z;
+				h ^= h >> 33;
+				h *= 0xFF51AFD7ED558CCDull;
+				h ^= h >> 33;
+				h *= 0xC4CEB93FE1A85EC5ull;
+				h ^= h >> 33;
+				return h;
+			}
 		};
 		std::unordered_map<Key, uint32_t, KeyHash> groups;
 		group.resize(vertexCount);

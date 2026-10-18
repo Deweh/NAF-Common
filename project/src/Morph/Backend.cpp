@@ -1,4 +1,5 @@
 #include "Backend.h"
+#include "Correctives.h"
 #include "Manager.h"
 #include "ShapeMorpher.h"
 #include "TriFile.h"
@@ -38,29 +39,6 @@ namespace Morph::Backend
 		{
 			static State state;
 			return state;
-		}
-
-		// Whether the actor's 3D is on screen: its root fade node passed culling this frame or the last, and isn't faded
-		// out. The culling pass stamps the frame number on each fade node it doesn't cull (BSFadeNode::OnVisible, from
-		// BSCullingGroup::ProcessNodeCuller, before it looks at fading), and the game's animation scheduler counts a
-		// reference stamped no earlier than the previous frame as visible (ShouldUpdateFadeNode). OnVisible doesn't keep
-		// the stamp while fading is off, or on a node that ignores fading once it's fully faded in, so those count as
-		// visible. Faded out is as BSFadeNode::IsVisible has it. Main thread.
-		bool IsVisible(RE::Actor* a_actor)
-		{
-			static REL::Relocation<const int32_t*> frame{ REL::ID(734919) };      // Incremented by Main::OnIdle.
-			static REL::Relocation<const bool*> fadeUpdates{ REL::ID(1445134) };  // Whether OnVisible updates fading.
-			static REL::Relocation<const bool*> fadeHides{ REL::ID(1220201) };    // Whether a faded-out node is hidden.
-			constexpr uint64_t kIgnoreFade = 1ull << 15;
-
-			auto root = a_actor ? a_actor->Get3D(false) : nullptr;
-			auto fade = root ? root->IsFadeNode() : nullptr;
-			if (!fade)
-				return true;
-			const bool ignoresFade = (fade->GetFlags() & kIgnoreFade) != 0;
-			if (!ignoresFade && *fadeHides && fade->currentFade <= 0.0f)
-				return false;
-			return ignoresFade || !*fadeUpdates || fade->frameCounter >= *frame - 1;
 		}
 
 		const RE::BSFixedString& GetBodyTriKey()
@@ -278,13 +256,38 @@ namespace Morph::Backend
 				return result;
 			});
 
-		// Main::DrawWorld_PreRender(int): sets up the world draw, on the main thread with the renderer locked. Morphs
-		// are uploaded here so the frame about to be drawn has them.
+		// Main::DrawWorld_PreRender(int): sets up the world draw, on the main thread with the renderer locked, after the
+		// frame's animation update. Correctives are evaluated and morphs uploaded here so the frame about to be drawn has
+		// them.
 		Util::DetourHook<void(void*, int32_t)> PreRenderHook(378257, "Main::DrawWorld_PreRender",
 			[](void* a_main, int32_t a_destination) {
+				Correctives::Update();
 				Flush();
 				PreRenderHook(a_main, a_destination);
 			});
+	}
+
+	// Whether the actor's 3D is on screen: its root fade node passed culling this frame or the last, and isn't faded
+	// out. The culling pass stamps the frame number on each fade node it doesn't cull (BSFadeNode::OnVisible, from
+	// BSCullingGroup::ProcessNodeCuller, before it looks at fading), and the game's animation scheduler counts a
+	// reference stamped no earlier than the previous frame as visible (ShouldUpdateFadeNode). OnVisible doesn't keep
+	// the stamp while fading is off, or on a node that ignores fading once it's fully faded in, so those count as
+	// visible. Faded out is as BSFadeNode::IsVisible has it. Main thread.
+	bool IsVisible(RE::Actor* a_actor)
+	{
+		static REL::Relocation<const int32_t*> frame{ REL::ID(734919) };      // Incremented by Main::OnIdle.
+		static REL::Relocation<const bool*> fadeUpdates{ REL::ID(1445134) };  // Whether OnVisible updates fading.
+		static REL::Relocation<const bool*> fadeHides{ REL::ID(1220201) };    // Whether a faded-out node is hidden.
+		constexpr uint64_t kIgnoreFade = 1ull << 15;
+
+		auto root = a_actor ? a_actor->Get3D(false) : nullptr;
+		auto fade = root ? root->IsFadeNode() : nullptr;
+		if (!fade)
+			return true;
+		const bool ignoresFade = (fade->GetFlags() & kIgnoreFade) != 0;
+		if (!ignoresFade && *fadeHides && fade->currentFade <= 0.0f)
+			return false;
+		return ignoresFade || !*fadeUpdates || fade->frameCounter >= *frame - 1;
 	}
 
 	std::vector<ShapeInfo> GetShapes(RE::Actor* a_actor)

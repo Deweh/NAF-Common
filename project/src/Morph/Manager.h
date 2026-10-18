@@ -14,7 +14,7 @@ namespace Morph
 	//
 	// Everything else is derived from this and owned by whoever derives it, rebuilt when the data generation or driver
 	// generation changes:
-	//   - a Graph owns its skeleton's DriverRuntime (resolved drivers), and keeps its target's ActorMorphs;
+	//   - Correctives owns each loaded actor's DriverRuntime (its skeleton's drivers, resolved) and the nodes they read;
 	//   - the frontend's Backend owns its per-actor bound shapes (ShapeMorpher), which keep the TriFiles they read from.
 	//
 	// ActorMorphs entries are shared: a holder's pointer stays valid after Remove, but its writes no longer reach the
@@ -37,7 +37,7 @@ namespace Morph
 		// Re-reads drivers and drops the loaded morph files, which are read again on next use.
 		void Reload();
 
-		// Whether actors' corrective drivers run (on by default). While off, graphs clear their corrective morphs.
+		// Whether actors' corrective drivers run (on by default). While off, every actor's corrective morphs are cleared.
 		void SetCorrectivesEnabled(bool a_enabled) { correctivesEnabled.store(a_enabled, std::memory_order_relaxed); }
 		[[nodiscard]] bool GetCorrectivesEnabled() const { return correctivesEnabled.load(std::memory_order_relaxed); }
 
@@ -49,13 +49,4 @@ namespace Morph
 		std::atomic<uint64_t> dataGeneration{ 0 };
 		std::atomic<bool> correctivesEnabled{ true };
 	};
-
-	// Not implemented yet. Correctives currently run only for actors with a NAF graph (Graph::UpdateCorrectiveMorphs),
-	// which already knows when its actor is visible, so off-screen actors cost nothing. The plan for every loaded actor:
-	// once per frame on the main thread, walk the high process actors (ProcessLists::highActorHandles) that are 3D-loaded
-	// and visible, skip any with a NAF graph, read the driver bones' locals straight from their skeleton nodes
-	// (NiAVObject::local, after the game's animation update), evaluate the race skeleton's drivers the same way and write
-	// Layer::kCorrective. Behind a setting, with a cap on actor count, since each morphed actor gets its own copy of every
-	// morphed mesh's vertices.
-	void UpdateActorsWithoutGraphs();
 }

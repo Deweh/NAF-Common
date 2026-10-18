@@ -13,14 +13,13 @@ Everything lives in NAF-Common's `Morph/`, so another game's port can reuse it. 
 | `Manager` | The single owner of shared morph data: every actor's values, the loaded drivers and TRI files, the reload generation and the correctives switch. | all |
 | `Values` | One actor's morph values in layers (`ActorMorphs`). | all |
 | `Drivers` | Corrective drivers: JSON loading, RBF interpolation, evaluation on a pose. | all |
+| `Correctives` | Runs the drivers on every visible loaded actor and writes its corrective values. Elsewhere, it does nothing. | F4 |
 | `Geometry` | `MeshDeformer`: sums morph offsets over rest positions, welds seam copies, and works out how far the surface turned at each vertex. | all |
 | `TriFile` | TRI reader and the loaded-file library. Reading through the game's archives is F4-only. | all |
 | `ShapeMorpher` | One actor's copy of one mesh shape: takes over its vertex range, reads and writes the vertex format, uploads. | F4 |
 | `Backend` | Hooks, binding shapes to actors, the per-frame flush. Elsewhere, `GetShapes` returns nothing. | F4 |
 
-`Animation/Graph`'s `UpdateCorrectiveMorphs` evaluates the skeleton's drivers after each visible update.
-
-**Ownership.** `Manager` owns everything shared, for the life of the plugin. Everything else is derived from it and owned by whoever derives it: a `Graph` owns its skeleton's resolved drivers (`DriverRuntime`) and holds a shared pointer to its target's `ActorMorphs`; the `Backend` owns each actor's bound shapes (`ShapeMorpher`), which hold the `TriFile`s they read from. Derived data is rebuilt when the manager's data generation or driver generation changes. Starfield has its own body morph and corrective system, so its backend would only hand the `Manager`'s totals to it; a Skyrim port could reuse `MeshDeformer` and `TriFile` with its own vertex format and buffers.
+**Ownership.** `Manager` owns everything shared, for the life of the plugin. Everything else is derived from it and owned by whoever derives it: `Correctives` owns each loaded actor's resolved drivers (`DriverRuntime`) and the skeleton nodes they read; the `Backend` owns each actor's bound shapes (`ShapeMorpher`), which hold the `TriFile`s they read from. Derived data is rebuilt when the manager's data generation or driver generation changes. Starfield has its own body morph and corrective system, so its backend would only hand the `Manager`'s totals to it; a Skyrim port could reuse `MeshDeformer` and `TriFile` with its own vertex format and buffers.
 
 ## Values
 
@@ -28,7 +27,7 @@ Each actor has morph values keyed by layer, then by morph name (case-insensitive
 
 - **Static**: set by other code and the console (`naf morph set`), keyed by the caller.
 - **Animation**: reserved for morph tracks in NAF animations. Nothing writes it yet.
-- **Corrective**: written by the actor's graph from its drivers.
+- **Corrective**: written by `Correctives` from the actor's drivers.
 
 `ActorMorphs::GetVersion` changes only when a total changes by more than 1e-4, so a frontend can skip actors whose morphs didn't change, and morphs that don't move cost nothing.
 
@@ -36,9 +35,9 @@ Each actor has morph values keyed by layer, then by morph name (case-insensitive
 
 Files in `Data/NAF/Correctives/*.json`, matched to skeletons by race EditorID (as NAF names skeletons). The format is documented at the top of `Morph/Drivers.h`. Each driver measures one bone's orientation in a reference bone's space (for a thigh: `LLeg_Thigh` in `Pelvis` space). Its axis runs to a tip bone (`LLeg_Calf`). The distance between two orientations combines swing (the angle between the axes) and twist (the turn about the axis that's left), as sqrt(swing² + (twist weight × twist)²). The twist weight defaults to 1; 0 makes a driver swing-only. Without twist, a side split with the knees forward and one with the knees up look identical to a driver, but the skinning carries a sculpt for one far off the other.
 
-Poses are given as a rotation about the character's axes (X right, Y forward, Z up), applied to the bone at rest, plus an optional extra twist about the bone's own axis. The rest pose is always an implicit pose with every morph at 0. Values in between come from Gaussian radial basis functions of that distance (`radius`, default 60°), solved so each pose's values are hit exactly. Outputs are clamped to `range` (default 0 to 1). Away from every pose they fade to 0; adding a pose with the morph at 0 pins it down where the fade isn't enough.
+Poses are given as a rotation about the character's axes (X right, Y forward, Z up), applied to the bone at rest, plus an optional extra twist about the bone's own axis. The rest pose is always an implicit pose with every morph at 0. Values in between come from Gaussian radial basis functions of that distance (`radius`, default 60°), solved for each pose's share so each pose is hit exactly. Shares below 0 are dropped and shares totalling more than 1 are scaled down to 1: unnormalized, two neighbouring poses each get about 0.55 halfway between them, and their sculpts stack into a bulge. A pose's morph values are scaled by its share and summed. Outputs are clamped to `range` (default 0 to 1). Away from every pose they fade to 0; adding a pose with the morph at 0 pins it down where the fade isn't enough.
 
-Correctives currently run only for actors with a NAF graph, which already skips actors that aren't visible. `Morph::UpdateActorsWithoutGraphs` is the empty stub for running them on every loaded actor, with the plan in its comment.
+Correctives run on every loaded actor, whether NAF animates it or not. Once per frame, at `Main::DrawWorld_PreRender` (after the frame's animation update, just before morphs are applied), `Correctives::Update` walks the player and the high process actors (`ProcessLists::highActorHandles`). For each one with 3D that's visible (the same test the backend uses, below), it evaluates the race skeleton's drivers on the bones' local transforms, read straight from the actor's skeleton nodes, and writes `Layer::kCorrective`. Joints the actor's model lacks use the skeleton's rest pose. An actor that isn't visible keeps its last values and costs nothing. An actor that leaves the high process or loses its 3D has its correctives cleared. Outputs under 1e-4 count as 0, so an actor near rest gets no morph values and no copy of its meshes. Each actor's resolved drivers and nodes are rebuilt when its 3D, its race or the drivers change.
 
 ## TRI files
 
@@ -93,14 +92,14 @@ The first, single-pose pipeline (side splits on TWB-3BBB), with tools in `Docume
 | `clear` | Clears static values. |
 | `values` | Every value, by layer and owner. |
 | `list` | The actor's morphable shapes; the morph names go to the log. |
-| `drivers` | Evaluates the actor's correctives now: swing and twist from rest, distance to each pose, outputs. |
+| `drivers` | Evaluates the actor's correctives now: swing and twist from rest, distance to each pose, outputs. Works on any actor with 3D. |
 | `reload` | Re-reads TRI files and driver files. |
 | `correctives [on\|off]` | Turns every actor's corrective drivers on or off; toggles without an argument. Other morphs keep applying. Not saved. |
 
 ## Not done yet
 
 - Morph tracks in NAF animations and Studio (the animation layer), Studio's morph panel, and capturing a driver pose from Studio.
-- Correctives for actors without a NAF graph.
 - An API for other plugins (F4SE messaging), Papyrus, saving static values.
 - A memory limit on loaded TRI files.
-- **Not yet verified in game:** whether morph values computed in this frame's animation update are always uploaded before this frame is drawn. The animation jobs and the draw are synchronized through thread stages that haven't been traced, so there may be one frame of lag. (The pose rotation axes were confirmed in game: the side-split driver reached about 0.9 in a side split.)
+- A cap on how many actors get correctives, since each morphed actor gets its own copy of every morphed mesh's vertices.
+- **Not yet verified in game:** that every animation update (vanilla and NAF) has finished writing node locals by `Main::DrawWorld_PreRender`, where correctives read them. The animation jobs and the draw are synchronized through thread stages that haven't been traced. (The pose rotation axes were confirmed in game: the side-split driver reached about 0.9 in a side split.)

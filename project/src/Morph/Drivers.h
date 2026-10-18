@@ -32,8 +32,9 @@ namespace Animation
 // A pose is a full orientation of the bone in the reference's space. The distance between two orientations combines
 // swing (the angle between the bone's axes) and twist (the turn about the axis that's left), as
 // sqrt(swing^2 + (twist weight * twist)^2). The rest pose is an implicit pose with every morph at 0. Between poses,
-// values are interpolated with Gaussian radial basis functions of that distance, so they're exact at each pose and fade
-// out away from all of them. Where several drivers drive the same morph, their values add up.
+// each pose's share is interpolated with Gaussian radial basis functions of that distance, so it's exact at each pose
+// and fades out away from all of them. Shares are kept from adding up to more than 1, so the poses around an in-between
+// orientation don't stack. Where several drivers drive the same morph, their values add up.
 namespace Morph
 {
 	struct DriverPose
@@ -120,7 +121,7 @@ namespace Morph
 			std::array<float, 3> localAxis;      // The axis and side vector in the bone's own frame.
 			std::array<float, 3> localSide;
 			std::vector<Orientation> centers;    // 0 is rest, then each pose.
-			std::vector<float> coefficients;     // centers x morphs, row-major.
+			std::vector<float> coefficients;     // centers x poses, row-major.
 		};
 
 		const ozz::animation::Skeleton* skeleton = nullptr;

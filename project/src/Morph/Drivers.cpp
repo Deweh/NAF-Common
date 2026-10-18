@@ -379,16 +379,15 @@ namespace Morph
 				r.centers.push_back({ inRefRest(axis), inRefRest(side) });
 			}
 
-			// Interpolation weights: Phi * C = W, with the rest pose's row of W all zero.
-			const size_t n = r.centers.size(), m = d.morphs.size();
+			// Interpolation weights: Phi * C = W, where W says how much of each pose each center is (the rest pose's row
+			// all zero, then the identity), so evaluating gives each pose's share rather than the morphs directly.
+			const size_t n = r.centers.size(), m = d.poses.size();
 			const float radius = d.radius * kDegToRad;
 			std::vector<double> phi(n * n), w(n * m, 0.0);
 			for (size_t i = 0; i < n; i++) {
 				for (size_t j = 0; j < n; j++) phi[i * n + j] = Kernel(Distance({ r.centers[i].axis, r.centers[i].side }, { r.centers[j].axis, r.centers[j].side }, d.twistWeight), radius) + (i == j ? 1e-6 : 0.0);
 			}
-			for (size_t i = 1; i < n; i++) {
-				for (size_t k = 0; k < m; k++) w[i * m + k] = d.poses[i - 1].weights[k];
-			}
+			for (size_t i = 1; i < n; i++) w[i * m + (i - 1)] = 1.0;
 			if (!Solve(phi, w, n, m)) {
 				logger::warn("Correctives: driver '{}' has poses too close together to tell apart; skipping it.", d.name);
 				continue;
@@ -434,10 +433,27 @@ namespace Morph
 				debug->twistFromRest = twist * kRadToDeg;
 				for (size_t i = 1; i < r.centers.size(); i++) debug->poseDistances.push_back(Distance(now, { r.centers[i].axis, r.centers[i].side }, d.twistWeight) * kRadToDeg);
 			}
+			// Each pose's share. Shares below 0 are dropped, and shares totalling more than 1 are scaled down to 1: between
+			// two poses the interpolation overshoots (about 0.55 each halfway), which would add up to more than either
+			// pose's correction. At a pose its share is still exactly 1.
+			const size_t poses = d.poses.size();
+			thread_local std::vector<float> shares;
+			shares.assign(poses, 0.0f);
+			float total = 0.0f;
+			for (size_t p = 0; p < poses; p++) {
+				float share = 0.0f;
+				for (size_t i = 0; i < r.centers.size(); i++) share += kernel[i] * r.coefficients[i * poses + p];
+				shares[p] = std::max(share, 0.0f);
+				total += shares[p];
+			}
+			if (total > 1.0f) {
+				for (auto& share : shares) share /= total;
+			}
+
 			const size_t m = d.morphs.size();
 			for (size_t k = 0; k < m; k++) {
 				float value = 0.0f;
-				for (size_t i = 0; i < r.centers.size(); i++) value += kernel[i] * r.coefficients[i * m + k];
+				for (size_t p = 0; p < poses; p++) value += shares[p] * d.poses[p].weights[k];
 				value = std::clamp(value, d.minimum, d.maximum);
 				totals[d.morphs[k]] += value;
 				if (debug)
