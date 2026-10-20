@@ -12,6 +12,7 @@ namespace Morph::Backend
 		std::string name;
 		uint32_t vertices = 0;
 		bool takenOver = false;
+		bool smoothed = false;  // Smoothed on the GPU at the last apply.
 		std::string state;
 		size_t active = 0;
 		size_t moved = 0;

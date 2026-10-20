@@ -46,6 +46,8 @@ namespace Morph
 	{
 		drivers.Load();
 		triFiles.Clear();
+		if (smoothing.GetRegion() == SmoothRegion::kCustom)
+			smoothing.ReloadCustom();
 		dataGeneration.fetch_add(1, std::memory_order_release);
 	}
 }

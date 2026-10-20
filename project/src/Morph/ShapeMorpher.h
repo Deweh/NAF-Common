@@ -1,5 +1,7 @@
 #pragma once
 #include "Geometry.h"
+#include "GpuSmoother.h"
+#include "Smoothing.h"
 #include "TriFile.h"
 #include "Values.h"
 
@@ -25,6 +27,12 @@ namespace Morph
 	// For a skinned shape, the deformer also gets each vertex's bone weights and, every apply, the skin's bone
 	// transforms, so it can shade crease areas on the posed mesh (MeshDeformer::SetPose). Shading there then follows
 	// the pose: while it does, Apply re-shades those vertices whenever their bones move, even if the morphs didn't.
+	//
+	// While corrective smoothing is on (SmoothLibrary), a skinned shape is taken over even without morphs, and once its
+	// mesh's smoothing data is built, the GPU does everything instead (GpuSmoother): the morphs go in as the morphed rest
+	// positions, and the smoothed, morphed, re-shaded vertices are written straight into the range. That follows the
+	// pose, so it's redone whenever the bones move. Until the data is ready, or if the GPU can't do it, the shape is
+	// morphed on the CPU as above; switching back rewrites the whole range from the CPU copy.
 	class ShapeMorpher
 	{
 	public:
@@ -43,7 +51,9 @@ namespace Morph
 		// thread, with the renderer locked.
 		bool Apply(const Values& a_totals, ID3D11DeviceContext* a_context);
 		// Whether the shape's shading follows the pose now, so Apply should be called every frame.
-		[[nodiscard]] bool IsPoseDependent() const { return state == State::kReady && deformer->IsPoseDependent(); }
+		[[nodiscard]] bool IsPoseDependent() const { return state == State::kReady && (smoothed || deformer->IsPoseDependent()); }
+		// Whether the GPU smoothed it at the last Apply.
+		[[nodiscard]] bool IsSmoothed() const { return smoothed; }
 		// Whether the shape is still the one this was made for: still attached, and drawing from our range if we took it.
 		[[nodiscard]] bool IsValid() const;
 		// After morph files are re-read: the next Apply re-applies everything from the new data.
@@ -77,6 +87,12 @@ namespace Morph
 		void WriteAndUpload(ID3D11DeviceContext* a_context);
 		void WriteVertex(uint32_t a_vertex, bool a_moved, bool a_shaded);
 		void Upload(ID3D11DeviceContext* a_context, const std::vector<uint32_t>& a_vertices);
+		// Whether corrective smoothing is on and the shape can take it (skinned, with normals).
+		[[nodiscard]] bool WantsSmoothing() const;
+		// Smooths on the GPU. False if it can't yet (data building) or at all; the CPU path runs then.
+		bool ApplySmoothed(const MeshDeformer::ActiveMorphs& a_active, const Values& a_totals, ID3D11DeviceContext* a_context);
+		// Every skin bone's transform, relative to the first. a_changed: whether any moved since the last read.
+		bool ReadBones(std::vector<Affine>& a_out, bool& a_changed);
 
 		RE::NiPointer<RE::BSTriShape> shape;
 		std::vector<Source> sources;
@@ -101,6 +117,24 @@ namespace Morph
 		Values applied;
 		uint32_t boneCount = 0;   // In the skin, if its weights were read.
 		std::vector<Affine> pose;  // As last read, relative to the first pose bone.
+		bool fullUpload = false;   // The next upload rewrites the whole range (after the GPU wrote it).
+
+		// Corrective smoothing.
+		std::vector<Vec3> restPositions;
+		std::vector<uint32_t> triangles;
+		std::vector<SkinWeights> skinWeights;
+		std::vector<std::string> boneNames;      // The skin's bones, by index.
+		SmoothLibrary::MeshFuture smoothData;
+		uint64_t smoothGeneration = UINT64_MAX;  // Of the settings smoothData and gpu are for.
+		uint64_t smoothFailed = UINT64_MAX;      // The settings generation smoothing failed for.
+		std::unique_ptr<GpuSmoother> gpu;
+		bool smoothed = false;                   // The GPU wrote the range last.
+		Values smoothedTotals;                   // The morphs in the GPU's rest positions.
+		std::vector<Affine> smoothedBones;       // As last given to the GPU.
+		uint32_t smoothedPasses = UINT32_MAX;
+		uint32_t smoothedAutoPasses = UINT32_MAX;
+		uint64_t regionGeneration = UINT64_MAX;  // Of the region gpu has.
+		bool inRegion = false;                   // Whether any of the shape is in it.
 	};
 }
 #endif

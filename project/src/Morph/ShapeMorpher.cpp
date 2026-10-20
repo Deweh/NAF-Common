@@ -1,4 +1,5 @@
 #include "ShapeMorpher.h"
+#include "Manager.h"
 
 #if defined TARGET_GAME_F4
 // First: it orders the D3D headers around Renderer.h.
@@ -174,6 +175,61 @@ namespace Morph
 			return true;
 		}
 
+		// BSFlattenedBoneTree, which CommonLibF4 doesn't define (from BSFlattenedBoneTree::GetOrCreateBoneNode and
+		// GetBoneNode): its bones at 0x148 (count at 0x140), 0xA0 bytes each: local transform, world transform (0x40),
+		// parent index (0x80), the bone's node if one was made (0x88), name (0x90). A skin on a flattened skeleton has no
+		// bone nodes; its world transform pointers point at the tree's bones' world transforms.
+		constexpr size_t kTreeCount = 0x140;
+		constexpr size_t kTreeBones = 0x148;
+		constexpr size_t kTreeStride = 0xA0;
+		constexpr size_t kTreeWorld = 0x40;
+		constexpr size_t kTreeName = 0x90;
+
+		bool IsFlattenedBoneTree(const RE::NiAVObject* a_object)
+		{
+			static REL::Relocation<const RE::NiRTTI*> rtti{ RE::Ni_RTTI::BSFlattenedBoneTree };
+			for (auto r = a_object->GetRTTI(); r; r = r->GetBaseRTTI()) {
+				if (r == rtti.get())
+					return true;
+			}
+			return false;
+		}
+
+		// The flattened bone trees in the scene graph a_shape is in.
+		std::vector<const std::byte*> FindBoneTrees(RE::NiAVObject* a_shape)
+		{
+			std::vector<const std::byte*> trees;
+			auto root = a_shape;
+			while (root->parent) root = root->parent;
+			std::vector<RE::NiAVObject*> stack{ root };
+			while (!stack.empty()) {
+				auto object = stack.back();
+				stack.pop_back();
+				if (!object)
+					continue;
+				if (IsFlattenedBoneTree(object))
+					trees.push_back(reinterpret_cast<const std::byte*>(object));
+				if (auto node = object->IsNode()) {
+					for (auto& child : node->children) stack.push_back(child.get());
+				}
+			}
+			return trees;
+		}
+
+		// The name of the flattened tree bone whose world transform a_world is, or empty.
+		std::string FlattenedBoneName(const std::vector<const std::byte*>& a_trees, const RE::NiTransform* a_world)
+		{
+			const auto at = reinterpret_cast<uintptr_t>(a_world);
+			for (auto tree : a_trees) {
+				const auto bones = *reinterpret_cast<const uintptr_t*>(tree + kTreeBones);
+				const auto count = *reinterpret_cast<const int32_t*>(tree + kTreeCount);
+				if (!bones || count <= 0 || at < bones || at >= bones + size_t(count) * kTreeStride || (at - bones) % kTreeStride != kTreeWorld)
+					continue;
+				return reinterpret_cast<const RE::BSFixedString*>(at - kTreeWorld + kTreeName)->c_str();
+			}
+			return {};
+		}
+
 		bool Differs(const Affine& a, const Affine& b)
 		{
 			constexpr float kLinear = 1e-4f, kTranslation = 1e-3f;
@@ -281,9 +337,9 @@ namespace Morph
 		base.assign(data, data + size);
 		work = base;
 
-		std::vector<Vec3> positions(vertexCount);
-		for (uint32_t v = 0; v < vertexCount; v++) positions[v] = ReadPosition(base.data() + size_t(v) * stride, fullPrecision);
-		std::vector<uint32_t> triangles;
+		restPositions.resize(vertexCount);
+		for (uint32_t v = 0; v < vertexCount; v++) restPositions[v] = ReadPosition(base.data() + size_t(v) * stride, fullPrecision);
+		triangles.clear();
 		auto ib = own->indexBuffer;
 		const uint32_t triCount = shape->numTriangles;
 		if (normalOffset && ib && ib->data && ib->dataSize >= triCount * 3 * sizeof(uint16_t)) {
@@ -291,12 +347,12 @@ namespace Morph
 			triangles.assign(indices, indices + size_t(triCount) * 3);
 		}
 
-		auto skin = normalOffset ? ReadSkin() : std::vector<SkinWeights>{};
+		skinWeights = normalOffset ? ReadSkin() : std::vector<SkinWeights>{};
 
 		// Welding and the triangle tables take a few milliseconds on a body, so they're built off the main thread.
 		auto promise = std::make_shared<std::promise<void>>();
 		preparing = promise->get_future().share();
-		std::thread([promise, deformer = deformer, positions = std::move(positions), triangles = std::move(triangles), skin = std::move(skin), name = std::string{ shape->name.c_str() },
+		std::thread([promise, deformer = deformer, positions = restPositions, triangles = triangles, skin = skinWeights, name = std::string{ shape->name.c_str() },
 						hasNormals = normalOffset != 0, vertices = vertexCount, triCount]() mutable {
 			const auto start = std::chrono::steady_clock::now();
 			deformer->Init(std::move(positions), triangles, std::move(skin));
@@ -358,6 +414,23 @@ namespace Morph
 		logger::info("Morphs: '{}' skins with {} bones; skinned centre is {:.1f} from its world bound's centre (radius {:.1f}).", shape->name.c_str(), bones,
 			std::sqrt(Dot(offset, offset)), bound.fRadius);
 		boneCount = bones;
+		// The bones' names, for picking the smoothing region: from the bone nodes, or on a flattened skeleton (which has
+		// none), from the tree bones their world transforms are.
+		boneNames.assign(bones, {});
+		std::optional<std::vector<const std::byte*>> trees;
+		uint32_t named = 0;
+		for (uint32_t b = 0; b < bones; b++) {
+			if (raw->bones.data && raw->bones.size == bones && raw->bones.data[b])
+				boneNames[b] = raw->bones.data[b]->name.c_str();
+			if (boneNames[b].empty()) {
+				if (!trees)
+					trees = FindBoneTrees(shape.get());
+				boneNames[b] = FlattenedBoneName(*trees, raw->worldTransforms.data[b]);
+			}
+			named += !boneNames[b].empty();
+		}
+		if (named < bones)
+			logger::warn("Morphs: only {} of the {} bones skinning '{}' have names; the rest are never in a smoothing region.", named, bones, shape->name.c_str());
 		return skin;
 	}
 
@@ -407,9 +480,10 @@ namespace Morph
 			}
 		}
 		activeCount = active.size();
+		const bool wantsSmoothing = WantsSmoothing();
 
 		if (state == State::kShared) {
-			if (active.empty())
+			if (active.empty() && !wantsSmoothing)
 				return true;
 			if (!TakeOver()) {
 				state = State::kFailed;
@@ -439,6 +513,17 @@ namespace Morph
 			state = State::kReady;
 			applied.clear();
 		}
+		if (wantsSmoothing && ApplySmoothed(active, a_totals, a_context))
+			return true;
+		if (smoothed) {
+			// The GPU wrote the whole range: the CPU path starts over and rewrites all of it.
+			smoothed = false;
+			applied.clear();
+			applied.emplace_back("", 0.0f);
+			fullUpload = true;
+		}
+		// While the smoothing data is being built, the caller keeps coming back, so it's used once it's ready.
+		const bool waiting = wantsSmoothing && !gpu && smoothData.valid();
 		bool poseChanged = false;
 		const bool posed = ReadPose(poseChanged);
 		if (a_totals == applied) {
@@ -448,14 +533,14 @@ namespace Morph
 				deformer->Reshade();
 				WriteAndUpload(a_context);
 			}
-			return true;
+			return !waiting;
 		}
 		applied = a_totals;
 
 		deformer->SetPose(posed ? pose : std::vector<Affine>{});
 		deformer->Apply(active);
 		WriteAndUpload(a_context);
-		return true;
+		return !waiting;
 	}
 
 	void ShapeMorpher::WriteAndUpload(ID3D11DeviceContext* a_context)
@@ -465,7 +550,124 @@ namespace Morph
 		std::vector<uint8_t> isMoved(vertexCount, 0);
 		for (uint32_t v : moved) isMoved[v] = 1;
 		for (uint32_t v : deformer->GetDirty()) WriteVertex(v, isMoved[v] != 0, std::ranges::binary_search(shaded, v));
+		if (fullUpload) {
+			fullUpload = false;
+			std::vector<uint32_t> all(vertexCount);
+			std::iota(all.begin(), all.end(), 0u);
+			Upload(a_context, all);
+			return;
+		}
 		Upload(a_context, deformer->GetDirty());
+	}
+
+	bool ShapeMorpher::WantsSmoothing() const
+	{
+		return skinOffset && normalOffset && shape->skinInstance.get() && Manager::GetSingleton()->GetSmoothing().GetEnabled();
+	}
+
+	bool ShapeMorpher::ReadBones(std::vector<Affine>& a_out, bool& a_changed)
+	{
+		a_changed = false;
+		auto skin = boneCount ? GetSkin(shape.get(), boneCount) : nullptr;
+		if (!skin)
+			return false;
+		// Relative to the first bone, so moving the whole actor isn't a change and positions stay small.
+		a_out.resize(boneCount);
+		Affine reference;
+		if (!GetBoneTransform(skin, 0, reference))
+			return false;
+		const auto toReference = reference.Inverse();
+		for (uint32_t b = 0; b < boneCount; b++) {
+			Affine transform;
+			if (!GetBoneTransform(skin, b, transform))
+				return false;
+			a_out[b] = toReference * transform;
+		}
+		a_changed = smoothedBones.size() != a_out.size();
+		for (uint32_t b = 0; b < boneCount && !a_changed; b++) a_changed = Differs(smoothedBones[b], a_out[b]);
+		return true;
+	}
+
+	bool ShapeMorpher::ApplySmoothed(const MeshDeformer::ActiveMorphs& a_active, const Values& a_totals, ID3D11DeviceContext* a_context)
+	{
+		if (skinWeights.empty() || triangles.empty())
+			return false;
+		auto& library = Manager::GetSingleton()->GetSmoothing();
+		const uint64_t generation = library.GetGeneration();
+		if (generation != smoothGeneration) {
+			// New settings: new data.
+			gpu.reset();
+			smoothData = {};
+			smoothGeneration = generation;
+		}
+		if (smoothFailed == generation)
+			return false;
+		if (!gpu) {
+			if (!smoothData.valid())
+				smoothData = library.Get({ restPositions, triangles, skinWeights, boneCount });
+			if (smoothData.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+				return false;
+			auto data = smoothData.get();
+			if (data) {
+				const GpuSmoother::Layout layout{ stride, normalOffset, tangentOffset, fullPrecision };
+				auto vb = own->vertexBuffer;
+				gpu = GpuSmoother::Create(std::move(data), layout, base, skinWeights, reinterpret_cast<ID3D11Buffer*>(vb->buffer), vb->dataOffset, shape->name.c_str());
+			}
+			if (!gpu) {
+				smoothFailed = generation;
+				smoothData = {};
+				return false;
+			}
+			smoothedTotals.clear();
+			smoothedTotals.emplace_back("", 0.0f);  // Never equal to real totals.
+			regionGeneration = UINT64_MAX;
+		}
+
+		// The region: how much each skin bone is in it. A shape wholly outside it keeps the CPU path.
+		bool update = false;
+		if (const uint64_t regionNow = library.GetRegionGeneration(); regionNow != regionGeneration) {
+			std::vector<float> strengths(boneCount);
+			uint32_t regionBones = 0;
+			for (uint32_t b = 0; b < boneCount && b < boneNames.size(); b++) {
+				strengths[b] = library.GetBoneStrength(boneNames[b]);
+				regionBones += strengths[b] > 0.0f;
+			}
+			inRegion = gpu->SetRegion(strengths) > 1e-3f;
+			logger::info("Morphs: '{}' has {} of its {} bones in the smoothing region; {}.", shape->name.c_str(), regionBones, boneCount,
+				inRegion ? "it's smoothed" : "none of it is smoothed");
+			regionGeneration = regionNow;
+			update = true;
+		}
+		if (!inRegion)
+			return false;
+
+		std::vector<Affine> bones;
+		bool bonesChanged = false;
+		if (!ReadBones(bones, bonesChanged))
+			return false;
+		update = update || !smoothed || bonesChanged;
+		if (a_totals != smoothedTotals) {
+			// The morphed rest mesh.
+			auto positions = restPositions;
+			for (const auto& [deltas, value] : a_active) {
+				for (size_t i = 0; i < deltas->indices.size(); i++) positions[deltas->indices[i]] += deltas->offsets[i] * value;
+			}
+			gpu->SetRestPositions(positions);
+			smoothedTotals = a_totals;
+			update = true;
+		}
+		const uint32_t passes = library.GetRuntimePasses();
+		const uint32_t autoPasses = library.GetAutoSmooth() ? library.GetAutoSmoothPasses() : 0;
+		if (passes != smoothedPasses || autoPasses != smoothedAutoPasses)
+			update = true;
+		if (update) {
+			gpu->Update(a_context, bones, passes, autoPasses);
+			smoothedBones = std::move(bones);
+			smoothedPasses = passes;
+			smoothedAutoPasses = autoPasses;
+		}
+		smoothed = true;
+		return true;
 	}
 
 	void ShapeMorpher::WriteVertex(uint32_t a_vertex, bool a_moved, bool a_shaded)

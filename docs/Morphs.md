@@ -15,6 +15,8 @@ Everything lives in NAF-Common's `Morph/`, so another game's port can reuse it. 
 | `Drivers` | Corrective drivers: JSON loading, RBF interpolation, evaluation on a pose. | all |
 | `Correctives` | Runs the drivers on every visible loaded actor and writes its corrective values. Elsewhere, it does nothing. | F4 |
 | `Geometry` | `MeshDeformer`: sums morph offsets over rest positions, welds seam copies, and works out how far the surface turned at each vertex. | all |
+| `Smoothing` | Corrective smoothing: its settings (`SmoothLibrary`, owned by `Manager`) and each mesh's precomputed data (`SmoothMesh`). | all |
+| `GpuSmoother` | Runs corrective smoothing for one shape in compute shaders, writing straight into its vertex range. | F4 |
 | `TriFile` | TRI reader and the loaded-file library. Reading through the game's archives is F4-only. | all |
 | `ShapeMorpher` | One actor's copy of one mesh shape: takes over its vertex range, reads and writes the vertex format, uploads. | F4 |
 | `Backend` | Hooks, binding shapes to actors, the per-frame flush. Elsewhere, `GetShapes` returns nothing. | F4 |
@@ -38,6 +40,33 @@ Files in `Data/NAF/Correctives/*.json`, matched to skeletons by race EditorID (a
 Poses are given as a rotation about the character's axes (X right, Y forward, Z up), applied to the bone at rest, plus an optional extra twist about the bone's own axis. The rest pose is always an implicit pose with every morph at 0. Values in between come from Gaussian radial basis functions of that distance (`radius`, default 60°), solved for each pose's share so each pose is hit exactly. Shares below 0 are dropped and shares totalling more than 1 are scaled down to 1: unnormalized, two neighbouring poses each get about 0.55 halfway between them, and their sculpts stack into a bulge. A pose's morph values are scaled by its share and summed. Outputs are clamped to `range` (default 0 to 1). Away from every pose they fade to 0; adding a pose with the morph at 0 pins it down where the fade isn't enough.
 
 Correctives run on every loaded actor, whether NAF animates it or not. Once per frame, at `Main::DrawWorld_PreRender` (after the frame's animation update, just before morphs are applied), `Correctives::Update` walks the player and the high process actors (`ProcessLists::highActorHandles`). For each one with 3D that's visible (the same test the backend uses, below), it evaluates the race skeleton's drivers on the bones' local transforms, read straight from the actor's skeleton nodes, and writes `Layer::kCorrective`. Joints the actor's model lacks use the skeleton's rest pose. An actor that isn't visible keeps its last values and costs nothing. An actor that leaves the high process or loses its 3D has its correctives cleared. Outputs under 1e-4 count as 0, so an actor near rest gets no morph values and no copy of its meshes. Each actor's resolved drivers and nodes are rebuilt when its 3D, its race or the drivers change.
+
+## Corrective smoothing
+
+Blender's Corrective Smooth modifier (Length Weight, factor 1), run on actors' skinned meshes in real time, so skinning's collapsed and crumpled creases come out as Blender shows them. Off by default; `naf morph smooth` or the menu's Settings tab turns it on. Settings aren't saved.
+
+Corrective Smooth smooths the skinned mesh *Repeat* times, then adds the rest mesh's detail (rest minus rest smoothed the same way) back on in the frames of the smoothed surface's face corners, averaged by corner angle. Here it's split in two:
+
+- **Precomputed, once per mesh** (`SmoothMesh::Build`, on background threads, about half a second for a body): the *Repeat* passes with edge lengths fixed at rest. That makes them linear in the bone transforms, so a vertex's smoothed position is the sum over a few bones of the bone's transform times a precomputed 4-vector (the smoothed `weight × [rest, 1]`). Bones contributing under 1e-3 are dropped; a body keeps about 13 per vertex. Each bone's field is smoothed separately, only as far as it spreads. Meshes built from the same rest positions, triangles and weights share their data (`SmoothLibrary::Get`).
+- **Every update, on the GPU** (`GpuSmoother`): the smoothed mesh from the bones; the runtime passes with the current edge lengths, as Blender does; then the detail, from the *morphed* rest positions, so every other morph goes through the smoothing as detail. Fixed lengths are what make the precomputed part differ from Blender; the runtime passes take out most of that. Against Blender at 700 repeats, 700 precomputed + 100 runtime passes is within about 1 unit on the hip poses tested (the default); 700 + 0 is within about 3.
+
+**Region.** Smoothing every joint rounds off the ones bent far from the rest pose: an A-pose body's shoulders with its arms down puff out into a rounded cap (Blender's modifier does the same), and knees bend badly too. So it applies within a region, picked by bone: a vertex is in it by the share of its smoothed position that the region's bones carry, which fades as smoothly as the smoothing spreads. That share is remapped so groups mostly the region's are wholly in it (from 0.65; out below 0.3), since the smoothing spreads some of every vertex onto bones around it (even the hip crease is only about 75% the hip region's). Outside, a vertex is plain skinning plus its morphs, with its authored normals (or turned to the morphed surface next to morphed vertices). Regions:
+
+- **Hips and thighs** (default): `Pelvis`, `Pelvis_Rear`, `Spine1` and `Spine1_Rear` (the top of the hip crease), the buttocks, and `Thigh` with its `_01_F` and `_01_R` helpers. Not `Thigh_Low` or `Thigh_Fat`, nor the calves. On the body: the hip crease, hips, buttocks and crotch are in, mid-thigh and waist partly, knees, abs and shoulders out.
+- **Whole body.**
+- **Custom**: `Data/NAF/Smoothing.json`, as `{ "bones": { "Pelvis_skin": 1.0, "LLeg_Thigh_skin": 0.5 } }`. Bone names are the skin's, case-insensitive, with or without `_skin`; strengths are 0 to 1. Read when the region is picked and by `naf morph reload`.
+
+A shape wholly outside the region keeps the CPU path.
+
+**Auto-smoothing** (off by default) smooths out crumpled creases afterwards, within the region, the way sculpting them out by hand does: the mask is where the skin is both squashed (from under 100% of its rest area, fully at 40%) and sharper than at rest (an edge bent from 8°, fully at 25°, more than at rest), spread four rings, and then *passes* (default 60) of plain smoothing move each vertex toward its neighbours' average by half the mask. Detail the body has at rest isn't sharper than at rest, so it's left alone, and the region keeps it off the abs. On squat, it takes the sharpest 1% of edges around the hips from 61° to 34° (hand-sculpted: 30°).
+
+Smoothing works on weld groups, so UV seams don't open. With **Pin open edges** (on by default) a mesh's open edges keep plain skinning, so the body's neck stays where the head mesh meets it. The result is written in the shape's own vertex format: each vertex's position is carried back through its own skinning, so the game's skinning lands it on the result, and its normal, tangent and bitangent are turned from where skinning would put the rest surface's normal to the result's, the same way. Where a group's triangles are tiny or face every which way (the tips of toes), their normal is mostly rounding error, so the frames there turn with the smoothed surface around them instead.
+
+Our compute shaders write into a buffer of ours, which is copied into the shape's range of the game's vertex buffer on the GPU; nothing is read back. The game's compute state is saved and put back around it. A shape is smoothed when it's skinned, has normals and is bound by the backend (it has a TRI source, as BodySlide bodies and outfits do), on every visible loaded actor, morphed or not. Until its data is built, or if the GPU path can't be set up (the vertex buffer isn't a default-usage buffer, for one; logged), the shape is morphed on the CPU as before, and switching back rewrites its whole range from the CPU copy. A smoothed shape is updated whenever its bones move, while its actor is visible.
+
+Cost, measured outside the game on an RTX 5070 Ti for a 21,455-vertex body: about 0.02 ms of GPU time for the precomputed part and 0.0035 ms per runtime pass (0.36 ms at 100). The precomputed data is a few MB per body mesh.
+
+**Correctives with smoothing on.** The smoothing does what the hip correctives' starting shapes did, so correctives exported from scenes baked with Corrective Smooth (`HipCorrectives_v3_CorrectiveSmooth.blend`) apply it twice while it's on. With smoothing, a corrective should hold only the sculpt's difference from the smoothed result.
 
 ## TRI files
 
@@ -95,6 +124,15 @@ The first, single-pose pipeline (side splits on TWB-3BBB), with tools in `Docume
 | `drivers` | Evaluates the actor's correctives now: swing and twist from rest, distance to each pose, outputs. Works on any actor with 3D. |
 | `reload` | Re-reads TRI files and driver files. |
 | `correctives [on\|off]` | Turns every actor's corrective drivers on or off; toggles without an argument. Other morphs keep applying. Not saved. |
+| `smooth [on\|off]` | Turns corrective smoothing on or off; toggles without an argument. Not saved. |
+| `smooth passes <count>` | Runtime passes (0 to 400, default 100). |
+| `smooth repeat <count>` | Precomputed passes (default 700). Rebuilds every mesh's data. |
+| `smooth pin <on\|off>` | Whether open edges keep plain skinning (default on). Rebuilds every mesh's data. |
+| `smooth region <hips\|body\|custom>` | Where smoothing applies (default hips and thighs). |
+| `smooth auto <on\|off>` | Auto-smoothing of crumpled creases within the region (default off). |
+| `smooth autopasses <count>` | Auto-smoothing's passes (1 to 200, default 60). |
+
+The same settings, and the correctives switch, are in the F6 menu's **Settings** tab.
 
 ## Not done yet
 

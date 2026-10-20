@@ -308,8 +308,7 @@ namespace RE
 		T* data;
 	};
 
-	// CommonLibSF leaves this part of BGSModelNode unmapped.
-	// TODO: offset is from the pre-1.15 game; verify against the current binary.
+	// BSModelNode::faceGenNodes (+0x48), verified for 1.16.
 	inline BSArray<BSFaceGenNiNode*>& GetFaceGenNodes(BGSModelNode* a_modelNode)
 	{
 		return *reinterpret_cast<BSArray<BSFaceGenNiNode*>*>(reinterpret_cast<std::uintptr_t>(a_modelNode) + 0x48);

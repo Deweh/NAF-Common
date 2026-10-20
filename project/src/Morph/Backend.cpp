@@ -33,6 +33,8 @@ namespace Morph::Backend
 			// Main thread only.
 			std::unordered_map<uint32_t, ActorEntry> actors;
 			uint64_t dataGeneration = UINT64_MAX;
+			// Smoothing's switch, settings generation and region generation at the last flush; a change revisits every actor.
+			std::tuple<bool, uint64_t, uint64_t> smoothing{ false, 0, 0 };
 		};
 
 		State& GetState()
@@ -207,6 +209,28 @@ namespace Morph::Backend
 				attached.swap(state.attached);
 			}
 
+			// Smoothing applies to every visible loaded actor's meshes, morphed or not, so each gets morph values (empty)
+			// to be visited by. Turning it on or off, or changing its settings, revisits every actor.
+			auto& smoothing = manager->GetSmoothing();
+			const std::tuple<bool, uint64_t, uint64_t> smoothingNow{ smoothing.GetEnabled(), smoothing.GetGeneration(), smoothing.GetRegionGeneration() };
+			if (smoothingNow != state.smoothing) {
+				state.smoothing = smoothingNow;
+				for (auto& [formId, entry] : state.actors) entry.appliedVersion = UINT64_MAX;
+			}
+			if (std::get<0>(smoothingNow)) {
+				const auto visit = [&](RE::Actor* a_actor) {
+					if (a_actor && a_actor->Get3D(false) && IsVisible(a_actor))
+						manager->Get(a_actor->GetFormID(), true);
+				};
+				visit(RE::PlayerCharacter::GetSingleton());
+				if (auto processLists = RE::ProcessLists::GetSingleton()) {
+					for (const auto& handle : processLists->highActorHandles) {
+						if (auto actor = handle.get())
+							visit(actor.get());
+					}
+				}
+			}
+
 			manager->ForEach([&](uint32_t a_formId, const std::shared_ptr<ActorMorphs>& a_morphs) {
 				const uint64_t version = a_morphs->GetVersion();
 				auto existing = state.actors.find(a_formId);
@@ -305,6 +329,7 @@ namespace Morph::Backend
 			info.name = shape->name.c_str();
 			info.vertices = shape->numVertices;
 			info.takenOver = morpher->IsTakenOver();
+			info.smoothed = morpher->IsSmoothed();
 			info.state = morpher->GetStateName();
 			info.active = morpher->GetActiveCount();
 			info.moved = morpher->GetMovedCount();

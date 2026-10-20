@@ -28,6 +28,7 @@ namespace UI
 		static void OnFrameThunk(Renderer* a_renderer);
 
         void DrawStudioTab();
+		void DrawSettingsTab();
 
 		Renderer* m_renderer{ nullptr };
 		bool m_isOpen{ false };

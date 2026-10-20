@@ -1,6 +1,7 @@
 #include "UI/ImguiMenu.h"
 #include "UI/StudioMenuEx.h"
 
+#include "Morph/Manager.h"
 #include "RE/CommonMisc.h"
 #include "Util/String.h"
 #include "imgui/ImGuizmo.h"
@@ -83,6 +84,10 @@ namespace UI
 				DrawStudioTab();
 				ImGui::EndTabItem();
 			}
+			if (ImGui::BeginTabItem("Settings")) {
+				DrawSettingsTab();
+				ImGui::EndTabItem();
+			}
 			ImGui::EndTabBar();
 		}
 
@@ -93,6 +98,70 @@ namespace UI
 	{
 		a_renderer;
 		GetSingleton()->Draw();
+	}
+
+	void ImguiMenu::DrawSettingsTab()
+	{
+		auto manager = Morph::Manager::GetSingleton();
+		const auto hint = [](const char* a_text) {
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+				ImGui::SetTooltip("%s", a_text);
+		};
+
+		ImGui::SeparatorText("Body morphs");
+		bool correctives = manager->GetCorrectivesEnabled();
+		if (ImGui::Checkbox("Corrective morphs", &correctives))
+			manager->SetCorrectivesEnabled(correctives);
+		hint("Pose-space corrective morphs (Data/NAF/Correctives). Other morphs keep applying.");
+
+		ImGui::SeparatorText("Corrective smoothing");
+		auto& smoothing = manager->GetSmoothing();
+		bool smooth = smoothing.GetEnabled();
+		if (ImGui::Checkbox("Corrective smoothing", &smooth))
+			smoothing.SetEnabled(smooth);
+		hint("Smooths visible actors' skinned, morphable meshes on the GPU, as Blender's Corrective Smooth\n(Length Weight, factor 1) does. Every other morph goes through it.");
+
+		static constexpr const char* kRegions[]{ "Hips and thighs", "Whole body", "Custom (Data/NAF/Smoothing.json)" };
+		int region = static_cast<int>(smoothing.GetRegion());
+		if (ImGui::Combo("Region", &region, kRegions, IM_ARRAYSIZE(kRegions)))
+			smoothing.SetRegion(static_cast<Morph::SmoothRegion>(region));
+		hint("Where smoothing applies, by bone; it fades out as smoothly as the smoothing spreads.\nHips and thighs: pelvis, lower spine, buttocks and upper thighs, not the knees. Smoothing joints\nbent far from the rest pose (the shoulders, with the arms down) rounds them off too much.\nCustom: {\"bones\": {\"Pelvis_skin\": 1.0, ...}} in Data/NAF/Smoothing.json, re-read on selecting it\nand by naf morph reload.");
+
+		bool autoSmooth = smoothing.GetAutoSmooth();
+		if (ImGui::Checkbox("Auto-smooth creases", &autoSmooth))
+			smoothing.SetAutoSmooth(autoSmooth);
+		hint("Within the region, smooths out crumpled creases afterwards: where the skin is squashed and\nsharper than at rest, and a few rings around. Detail the body has at rest is left alone.");
+		int autoPasses = static_cast<int>(smoothing.GetAutoSmoothPasses());
+		if (!autoSmooth)
+			ImGui::BeginDisabled();
+		if (ImGui::SliderInt("Auto-smooth passes", &autoPasses, 1, static_cast<int>(Morph::SmoothLibrary::kMaxAutoSmoothPasses), "%d", ImGuiSliderFlags_AlwaysClamp))
+			smoothing.SetAutoSmoothPasses(static_cast<uint32_t>(autoPasses));
+		if (!autoSmooth)
+			ImGui::EndDisabled();
+		hint("More smooths creases further (default 60).");
+
+		int passes = static_cast<int>(smoothing.GetRuntimePasses());
+		if (ImGui::SliderInt("Runtime passes", &passes, 0, static_cast<int>(Morph::SmoothLibrary::kMaxRuntimePasses), "%d", ImGuiSliderFlags_AlwaysClamp))
+			smoothing.SetRuntimePasses(static_cast<uint32_t>(passes));
+		hint("Passes run every update on top of the precomputed ones, with the current edge lengths, as Blender\ndoes. More is closer to Blender and costs more GPU time; 0 uses only the precomputed passes.");
+
+		auto settings = smoothing.GetSettings();
+		int repeat = static_cast<int>(settings.repeat);
+		if (ImGui::InputInt("Precomputed passes", &repeat, 50, 100, ImGuiInputTextFlags_EnterReturnsTrue)) {
+			settings.repeat = static_cast<uint32_t>(std::clamp(repeat, static_cast<int>(Morph::SmoothLibrary::kMinRepeat), static_cast<int>(Morph::SmoothLibrary::kMaxRepeat)));
+			smoothing.SetSettings(settings);
+		}
+		hint("Passes precomputed with rest edge lengths: Blender's Repeat (the runtime passes come on top).\nApplied with Enter. Changing it rebuilds every mesh's smoothing data (about a\nsecond each, in the background); meshes keep plain morphs meanwhile.");
+
+		bool pin = settings.pinBoundaries;
+		if (ImGui::Checkbox("Pin open edges", &pin)) {
+			settings.pinBoundaries = pin;
+			smoothing.SetSettings(settings);
+		}
+		hint("Keeps a mesh's open edges (a body's neck, where the head mesh meets it) where skinning puts them,\nso no gap opens there. Changing it rebuilds every mesh's smoothing data.");
+
+		ImGui::Spacing();
+		ImGui::TextDisabled("Not saved: these reset when the game restarts.");
 	}
 
 	void ImguiMenu::DrawStudioTab()

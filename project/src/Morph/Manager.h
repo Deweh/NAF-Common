@@ -1,5 +1,6 @@
 #pragma once
 #include "Drivers.h"
+#include "Smoothing.h"
 #include "TriFile.h"
 #include "Values.h"
 
@@ -10,12 +11,14 @@ namespace Morph
 	//   - the corrective drivers read from Data/NAF/Correctives (DriverLibrary);
 	//   - the TRI files read for meshes (TriLibrary);
 	//   - the data generation, bumped when morph files and drivers are re-read;
-	//   - whether correctives run.
+	//   - whether correctives run;
+	//   - corrective smoothing's settings and meshes' precomputed smoothing data (SmoothLibrary).
 	//
 	// Everything else is derived from this and owned by whoever derives it, rebuilt when the data generation or driver
 	// generation changes:
 	//   - Correctives owns each loaded actor's DriverRuntime (its skeleton's drivers, resolved) and the nodes they read;
-	//   - the frontend's Backend owns its per-actor bound shapes (ShapeMorpher), which keep the TriFiles they read from.
+	//   - the frontend's Backend owns its per-actor bound shapes (ShapeMorpher), which keep the TriFiles they read from
+	//     and, while smoothing, their mesh's smoothing data and GPU buffers.
 	//
 	// ActorMorphs entries are shared: a holder's pointer stays valid after Remove, but its writes no longer reach the
 	// frontend, which only reads entries still in the manager. Entries are created on first use and not removed yet.
@@ -31,6 +34,8 @@ namespace Morph
 
 		[[nodiscard]] DriverLibrary& GetDrivers() { return drivers; }
 		[[nodiscard]] TriLibrary& GetTriFiles() { return triFiles; }
+		// Corrective smoothing: its on/off switch and settings, and meshes' precomputed data.
+		[[nodiscard]] SmoothLibrary& GetSmoothing() { return smoothing; }
 
 		// Bumped by Reload, so frontends rebind their shapes to the re-read morph files.
 		[[nodiscard]] uint64_t GetDataGeneration() const { return dataGeneration.load(std::memory_order_acquire); }
@@ -46,6 +51,7 @@ namespace Morph
 		std::unordered_map<uint32_t, std::shared_ptr<ActorMorphs>> actors;
 		DriverLibrary drivers;
 		TriLibrary triFiles;
+		SmoothLibrary smoothing;
 		std::atomic<uint64_t> dataGeneration{ 0 };
 		std::atomic<bool> correctivesEnabled{ true };
 	};
