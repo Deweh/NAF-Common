@@ -22,10 +22,26 @@ namespace Morph
 		}
 
 		constexpr uint32_t kThreads = 64;
-		constexpr uint32_t kSrvSlots = 26;
+		constexpr uint32_t kSrvSlots = 29;
 		constexpr uint32_t kUavSlots = 3;
+		constexpr uint32_t kConstantSlots = 2;
 		// Auto-smoothing's mask spreads this many rings out from where the creases are.
 		constexpr uint32_t kMaskRings = 4;
+		// Stretch detail compares areas averaged over this many rings. Volume preservation softens its push mask over this
+		// many (after it's kept off squashed skin), and restores the volume in this many steps.
+		constexpr uint32_t kStretchRings = 6;
+		constexpr uint32_t kVolumeMaskRings = 3;
+		constexpr uint32_t kVolumeSteps = 4;
+		// A group is buttock where the buttock bones carry more than this share of its skin; the push mask starts at
+		// kButtockMaskFrom of it and is whole kButtockMaskWidth above that, softened over kButtockMaskRings rings. Across
+		// the middle, the sides blend over kSideBlend units either way. The measuring point is the middle of the skin
+		// the pelvis bones carry more than kPelvisShare of.
+		constexpr float kButtockShare = 0.25f;
+		constexpr float kButtockMaskFrom = 0.1f;
+		constexpr float kButtockMaskWidth = 0.25f;
+		constexpr uint32_t kButtockMaskRings = 4;
+		constexpr float kSideBlend = 1.5f;
+		constexpr float kPelvisShare = 0.5f;
 		// A group moved by morphs by more than this counts as morphed (its surroundings' frames turn wholly).
 		constexpr float kMorphedDistance = 1e-5f;
 		// A group whose smoothed position the region's bones carry less than this share of is out of the region; from
@@ -48,7 +64,23 @@ cbuffer Params : register(b0)
 	uint Pad;
 };
 
+cbuffer Frame : register(b1)
+{
+	float4 VolumePointRest;
+	float4 VolumePointNow;
+	float VolumeRestore;
+	uint PartialCount;
+	uint StretchDetail;
+	uint FramePad;
+};
+
 static const uint kNoGroup = 0xFFFFFFFF;
+// Stretch detail's scale is kept within these. Volume preservation's buttock push is off where the skin has under
+// kKeepOffSquashed of its rest area, whole from kKeepOffSquashed + kKeepOffWidth.
+static const float kStretchMin = 0.7;
+static const float kStretchMax = 1.6;
+static const float kKeepOffSquashed = 0.6;
+static const float kKeepOffWidth = 0.4;
 // Auto-smoothing: skin squashed to under 100% of its rest area counts, fully at 40%; an edge bent 8 degrees more than at
 // rest starts to count, fully at 25 degrees more.
 static const float kSquashFrom = 1.0;
@@ -81,7 +113,10 @@ StructuredBuffer<float4> Region : register(t21);         // Per group: how much 
 StructuredBuffer<uint2> Wings : register(t22);           // Per neighbour entry (SmoothMesh::wings).
 StructuredBuffer<float> RestEdgeAngle : register(t23);   // Per neighbour entry, degrees.
 StructuredBuffer<float> RestArea : register(t24);        // Per group.
-StructuredBuffer<float4> Mask : register(t25);           // Auto-smoothing's weight, in x.
+StructuredBuffer<float4> Mask : register(t25);           // Auto-smoothing's weight in x; or areas, or push weights.
+StructuredBuffer<float4> VolumeMask : register(t26);     // Per group: left and right buttock push mask, side (0, 1 or 2).
+StructuredBuffer<float4> Partials : register(t27);       // Two per thread group (VolumePartialCS).
+StructuredBuffer<float4> VolumeStep : register(t28);     // The push now (left, right), then the target volumes.
 RWStructuredBuffer<float4> Out : register(u0);
 RWByteAddressBuffer OutVertices : register(u1);
 RWStructuredBuffer<float4> TurnsOut : register(u2);
@@ -184,7 +219,13 @@ void CornerFrame(float3 p, float3 prev, float3 next, out float3 t, out float3 b,
 		q2 += (t.z * t0 + b.z * b0 + n.z * n0) * w;
 		total += w;
 	}
-	float3 smoothed = total > 0 ? s + acc / total : s + delta;
+	// Stretch detail: the detail grown or shrunk with the surface around it (Mask: its area now and at rest).
+	float scale = 1.0;
+	if (StretchDetail != 0) {
+		float2 areas = Mask[g].xy;
+		scale = clamp(sqrt(areas.x / max(areas.y, 1e-12)), kStretchMin, kStretchMax);
+	}
+	float3 smoothed = s + (total > 0 ? acc / total : delta) * scale;
 	float inRegion = Region[g].x;
 	if (inRegion < 1.0) {
 		float4 r0, r1, r2;
@@ -262,6 +303,144 @@ void CornerFrame(float3 p, float3 prev, float3 next, out float3 t, out float3 b,
 	float3 sum = 0;
 	for (uint k = begin; k < end; k++) sum += Xin[Neighbours[k]].xyz;
 	Out[g] = float4(x + 0.5 * w * (sum / (end - begin) - x), 1);
+}
+
+// A group's area on a surface: a third of its triangles'.
+float GroupArea(StructuredBuffer<float4> x, uint g)
+{
+	float3 p = x[g].xyz;
+	float area = 0;
+	for (uint c = CornerStart[g]; c < CornerStart[g + 1]; c++) {
+		uint2 pn = Corners[c];
+		area += length(cross(x[pn.y].xyz - p, x[pn.x].xyz - p));
+	}
+	return area / 6.0;
+}
+
+// Stretch detail: each group's area on the smoothed mesh and on the smoothed rest mesh.
+[numthreads(64, 1, 1)] void StretchAreaCS(uint3 id : SV_DispatchThreadID)
+{
+	uint g = id.x;
+	if (g >= GroupCount)
+		return;
+	Out[g] = float4(GroupArea(Smoothed, g), GroupArea(SmoothedRest, g), 0, 0);
+}
+
+// Mask averaged with its neighbours (all four components).
+[numthreads(64, 1, 1)] void AverageCS(uint3 id : SV_DispatchThreadID)
+{
+	uint g = id.x;
+	if (g >= GroupCount)
+		return;
+	uint begin = NeighbourStart[g], end = NeighbourStart[g + 1];
+	float4 sum = Mask[g];
+	for (uint k = begin; k < end; k++) sum += Mask[Neighbours[k]];
+	Out[g] = sum / float(end - begin + 1);
+}
+
+// The buttock push weights: the static masks, by how much the group is in the region, off where the skin is squashed.
+[numthreads(64, 1, 1)] void VolumeWeightCS(uint3 id : SV_DispatchThreadID)
+{
+	uint g = id.x;
+	if (g >= GroupCount)
+		return;
+	float t = saturate((GroupArea(Xin, g) / max(RestArea[g], 1e-12) - kKeepOffSquashed) / kKeepOffWidth);
+	Out[g] = float4(VolumeMask[g].xy * (t * t * (3.0 - 2.0 * t) * Region[g].x), 0, 0);
+}
+
+groupshared float4 SumA[64];
+groupshared float4 SumB[64];
+
+void SumGroup(uint i)
+{
+	GroupMemoryBarrierWithGroupSync();
+	[unroll] for (uint s = 32; s > 0; s >>= 1) {
+		if (i < s) {
+			SumA[i] += SumA[i + s];
+			SumB[i] += SumB[i + s];
+		}
+		GroupMemoryBarrierWithGroupSync();
+	}
+}
+
+// Each thread group's sums: left and right buttock volume now and at rest (each group's triangles' tetrahedra to the
+// measuring point, a third each, as every triangle is at three groups' corners), and the push weights times area.
+[numthreads(64, 1, 1)] void VolumePartialCS(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint i : SV_GroupIndex)
+{
+	uint g = id.x;
+	float4 a = 0, b = 0;
+	if (g < GroupCount) {
+		float3 p = Xin[g].xyz, r = Rest[g].xyz;
+		float3 c = VolumePointNow.xyz, c0 = VolumePointRest.xyz;
+		float area = 0, volume = 0, restVolume = 0;
+		for (uint k = CornerStart[g]; k < CornerStart[g + 1]; k++) {
+			uint2 pn = Corners[k];
+			float3 next = Xin[pn.y].xyz, prev = Xin[pn.x].xyz;
+			area += length(cross(next - p, prev - p));
+			volume += dot(p - c, cross(next - c, prev - c));
+			restVolume += dot(r - c0, cross(Rest[pn.y].xyz - c0, Rest[pn.x].xyz - c0));
+		}
+		float side = VolumeMask[g].z;
+		if (side > 1.5) {
+			a.y = volume / 18.0;
+			b.y = restVolume / 18.0;
+		} else if (side > 0.5) {
+			a.x = volume / 18.0;
+			b.x = restVolume / 18.0;
+		}
+		a.zw = Mask[g].xy * (area / 6.0);
+	}
+	SumA[i] = a;
+	SumB[i] = b;
+	SumGroup(i);
+	if (i == 0) {
+		Out[group.x * 2] = SumA[0];
+		Out[group.x * 2 + 1] = SumB[0];
+	}
+}
+
+// The totals, and the push that restores each buttock's volume to its target (set the first time each update, from the
+// volume then and VolumeRestore of what it lost).
+[numthreads(64, 1, 1)] void VolumeSumCS(uint i : SV_GroupIndex)
+{
+	float4 a = 0, b = 0;
+	for (uint k = i; k < PartialCount; k += 64) {
+		a += Partials[k * 2];
+		b += Partials[k * 2 + 1];
+	}
+	SumA[i] = a;
+	SumB[i] = b;
+	SumGroup(i);
+	if (i == 0) {
+		a = SumA[0];
+		b = SumB[0];
+		float4 target = Out[1];
+		if (target.w == 0) {
+			target = float4(a.xy + VolumeRestore * max(b.xy - a.xy, 0), 0, 1);
+			Out[1] = target;
+		}
+		Out[0] = float4(max(target.xy - a.xy, 0) / max(a.zw, 1e-12), 0, 0);
+	}
+}
+
+// The push: out along the normal by the step times the group's weight, each side.
+[numthreads(64, 1, 1)] void VolumePushCS(uint3 id : SV_DispatchThreadID)
+{
+	uint g = id.x;
+	if (g >= GroupCount)
+		return;
+	float3 p = Xin[g].xyz;
+	float amount = dot(Mask[g].xy, VolumeStep[0].xy);
+	if (amount <= 0 || Pinned[g] != 0) {
+		Out[g] = float4(p, 1);
+		return;
+	}
+	float3 n = 0;
+	for (uint k = CornerStart[g]; k < CornerStart[g + 1]; k++) {
+		uint2 pn = Corners[k];
+		n += cross(Xin[pn.y].xyz - p, Xin[pn.x].xyz - p);
+	}
+	Out[g] = float4(p + SafeNormalize(n) * amount, 1);
 }
 
 float UnpackByte(uint v) { return float(v & 0xFF) / 255.0 * 2.0 - 1.0; }
@@ -352,6 +531,12 @@ float3 RotateToward(float3 from, float3 to, float3 v, float amount)
 			ID3D11ComputeShader* dilate = nullptr;
 			ID3D11ComputeShader* relax = nullptr;
 			ID3D11ComputeShader* write = nullptr;
+			ID3D11ComputeShader* stretchArea = nullptr;
+			ID3D11ComputeShader* average = nullptr;
+			ID3D11ComputeShader* volumeWeight = nullptr;
+			ID3D11ComputeShader* volumePartial = nullptr;
+			ID3D11ComputeShader* volumeSum = nullptr;
+			ID3D11ComputeShader* volumePush = nullptr;
 			bool tried = false;
 		};
 
@@ -390,9 +575,17 @@ float3 RotateToward(float3 from, float3 to, float3 v, float amount)
 				shaders.dilate = compile("DilateCS");
 				shaders.relax = compile("RelaxCS");
 				shaders.write = compile("WriteCS");
+				shaders.stretchArea = compile("StretchAreaCS");
+				shaders.average = compile("AverageCS");
+				shaders.volumeWeight = compile("VolumeWeightCS");
+				shaders.volumePartial = compile("VolumePartialCS");
+				shaders.volumeSum = compile("VolumeSumCS");
+				shaders.volumePush = compile("VolumePushCS");
 			}
 			const auto& s = shaders;
-			return s.smooth && s.pass && s.detail && s.mask && s.dilate && s.relax && s.write ? &shaders : nullptr;
+			const bool all = s.smooth && s.pass && s.detail && s.mask && s.dilate && s.relax && s.write && s.stretchArea && s.average && s.volumeWeight && s.volumePartial &&
+			                 s.volumeSum && s.volumePush;
+			return all ? &shaders : nullptr;
 		}
 
 		// The game's compute state, put back after we've used the context.
@@ -405,7 +598,7 @@ float3 RotateToward(float3 from, float3 to, float3 v, float amount)
 				context->CSGetShader(&shader, nullptr, nullptr);
 				context->CSGetShaderResources(0, kSrvSlots, srvs);
 				context->CSGetUnorderedAccessViews(0, kUavSlots, uavs);
-				context->CSGetConstantBuffers(0, 1, &constants);
+				context->CSGetConstantBuffers(0, kConstantSlots, constants);
 			}
 			~SavedComputeState()
 			{
@@ -415,7 +608,7 @@ float3 RotateToward(float3 from, float3 to, float3 v, float amount)
 				context->CSSetShaderResources(0, kSrvSlots, srvs);
 				const UINT keep[kUavSlots]{ UINT(-1), UINT(-1), UINT(-1) };
 				context->CSSetUnorderedAccessViews(0, kUavSlots, uavs, keep);
-				context->CSSetConstantBuffers(0, 1, &constants);
+				context->CSSetConstantBuffers(0, kConstantSlots, constants);
 				if (shader)
 					shader->Release();
 				for (auto srv : srvs) {
@@ -426,8 +619,10 @@ float3 RotateToward(float3 from, float3 to, float3 v, float amount)
 					if (uav)
 						uav->Release();
 				}
-				if (constants)
-					constants->Release();
+				for (auto buffer : constants) {
+					if (buffer)
+						buffer->Release();
+				}
 			}
 			SavedComputeState(const SavedComputeState&) = delete;
 			SavedComputeState& operator=(const SavedComputeState&) = delete;
@@ -437,7 +632,7 @@ float3 RotateToward(float3 from, float3 to, float3 v, float amount)
 			ID3D11ComputeShader* shader = nullptr;
 			ID3D11ShaderResourceView* srvs[kSrvSlots]{};
 			ID3D11UnorderedAccessView* uavs[kUavSlots]{};
-			ID3D11Buffer* constants = nullptr;
+			ID3D11Buffer* constants[kConstantSlots]{};
 		};
 
 		struct Params
@@ -452,6 +647,17 @@ float3 RotateToward(float3 from, float3 to, float3 v, float amount)
 			uint32_t pad;
 		};
 		static_assert(sizeof(Params) == 32);
+
+		struct FrameParams
+		{
+			float volumePointRest[4];
+			float volumePointNow[4];
+			float volumeRestore;
+			uint32_t partialCount;
+			uint32_t stretchDetail;
+			uint32_t pad;
+		};
+		static_assert(sizeof(FrameParams) == 48);
 	}
 
 	void GpuSmoother::View::Release()
@@ -624,6 +830,9 @@ float3 RotateToward(float3 from, float3 to, float3 v, float amount)
 			MakeStructured(device, 16, m.groupCount, nullptr, true, maskB) &&
 			MakeStructured(device, 16, m.groupCount, nullptr, true, smoothedRestPassed) &&
 			MakeStructured(device, 16, m.groupCount, nullptr, true, scratch) &&
+			MakeStructured(device, 16, m.groupCount, zeros.data(), false, volumeMask) &&
+			MakeStructured(device, 16, size_t((m.groupCount + kThreads - 1) / kThreads) * 2, nullptr, true, volumePartials) &&
+			MakeStructured(device, 16, 2, nullptr, true, volumeStep) &&
 			MakeRaw(device, bytes, a_base.data(), true, output);
 		if (!ok) {
 			logger::warn("Morphs: couldn't create the GPU buffers to smooth '{}'; it keeps plain morphs.", a_name);
@@ -635,10 +844,15 @@ float3 RotateToward(float3 from, float3 to, float3 v, float amount)
 		cdesc.Usage = D3D11_USAGE_DEFAULT;
 		cdesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
 		D3D11_SUBRESOURCE_DATA cinit{ &params };
-		if (FAILED(device->CreateBuffer(&cdesc, &cinit, &constants))) {
+		const FrameParams frame{};
+		D3D11_SUBRESOURCE_DATA finit{ &frame };
+		D3D11_BUFFER_DESC fdesc = cdesc;
+		fdesc.ByteWidth = sizeof(FrameParams);
+		if (FAILED(device->CreateBuffer(&cdesc, &cinit, &constants)) || FAILED(device->CreateBuffer(&fdesc, &finit, &frameConstants))) {
 			logger::warn("Morphs: couldn't create the GPU buffers to smooth '{}'; it keeps plain morphs.", a_name);
 			return false;
 		}
+		skin = a_skin;
 		regionWeight.assign(m.groupCount, 0.0f);
 		shadeWeight.assign(m.groupCount, 0.0f);
 		logger::info("Morphs: '{}' is smoothed on the GPU ({} vertices, {} weld groups).", a_name, vertexCount, m.groupCount);
@@ -649,10 +863,12 @@ float3 RotateToward(float3 from, float3 to, float3 v, float amount)
 	{
 		for (auto view : { &weightStart, &weightBone, &weights, &neighbourStart, &neighbours, &cornerStart, &corners, &pinned, &frameShaded, &restNormal, &smoothedRest, &groupVertex,
 				 &wings, &restEdgeAngle, &restArea, &vertexGroup, &vertexSkin, &base, &bones, &rest, &region, &smoothA, &smoothB, &result, &turns, &maskA, &maskB,
-				 &smoothedRestPassed, &scratch, &output })
+				 &smoothedRestPassed, &scratch, &volumeMask, &volumePartials, &volumeStep, &output })
 			view->Release();
 		if (constants)
 			constants->Release();
+		if (frameConstants)
+			frameConstants->Release();
 	}
 
 	void GpuSmoother::SetRestPositions(const std::vector<Vec3>& a_positions)
@@ -701,6 +917,65 @@ float3 RotateToward(float3 from, float3 to, float3 v, float amount)
 		return most;
 	}
 
+	bool GpuSmoother::SetVolumeBones(const std::vector<VolumeBone>& a_bones)
+	{
+		const auto& m = *mesh;
+		const auto role = [&](uint32_t a_bone) { return a_bone < a_bones.size() ? a_bones[a_bone] : VolumeBone::kNone; };
+		const auto smoothstep = [](float a_x) {
+			const float t = std::clamp(a_x, 0.0f, 1.0f);
+			return t * t * (3.0f - 2.0f * t);
+		};
+		// Each group's skin: how much of it the buttock bones carry, and the pelvis bones.
+		std::vector<float> buttock(m.groupCount, 0.0f);
+		Vec3 pointSum{};
+		uint32_t pointCount = 0;
+		for (uint32_t g = 0; g < m.groupCount; g++) {
+			const auto& s = skin[m.groupVertex[g]];
+			float pelvis = 0.0f;
+			for (int i = 0; i < 4; i++) {
+				const auto r = role(s.bones[i]);
+				buttock[g] += (r == VolumeBone::kButtock || r == VolumeBone::kPelvisRear) ? s.weights[i] : 0.0f;
+				pelvis += (r == VolumeBone::kPelvis || r == VolumeBone::kPelvisRear) ? s.weights[i] : 0.0f;
+			}
+			if (pelvis > kPelvisShare) {
+				pointSum = pointSum + m.rest[g];
+				pointCount++;
+			}
+		}
+		pelvisBone = UINT32_MAX;
+		for (uint32_t b = 0; b < a_bones.size(); b++) {
+			if (a_bones[b] == VolumeBone::kPelvis || (a_bones[b] == VolumeBone::kPelvisRear && pelvisBone == UINT32_MAX))
+				pelvisBone = b;
+		}
+		// The push mask, softened over a few rings, then split by side.
+		std::vector<float> push(m.groupCount), next(m.groupCount);
+		for (uint32_t g = 0; g < m.groupCount; g++) push[g] = smoothstep((buttock[g] - kButtockMaskFrom) / kButtockMaskWidth);
+		for (uint32_t r = 0; r < kButtockMaskRings; r++) {
+			for (uint32_t g = 0; g < m.groupCount; g++) {
+				float sum = push[g];
+				for (uint32_t k = m.neighbourStart[g]; k < m.neighbourStart[g + 1]; k++) sum += push[m.neighbours[k]];
+				next[g] = sum / float(m.neighbourStart[g + 1] - m.neighbourStart[g] + 1);
+			}
+			push.swap(next);
+		}
+		hasButtocks = false;
+		pendingVolumeMask.assign(size_t(m.groupCount) * 4, 0.0f);
+		if (pointCount > 0 && pelvisBone != UINT32_MAX) {
+			volumePoint = pointSum * (1.0f / float(pointCount));
+			for (uint32_t g = 0; g < m.groupCount; g++) {
+				const float x = m.rest[g].x - volumePoint.x;
+				const float right = smoothstep(0.5f + x / (2.0f * kSideBlend));
+				pendingVolumeMask[g * 4] = push[g] * (1.0f - right);
+				pendingVolumeMask[g * 4 + 1] = push[g] * right;
+				if (buttock[g] > kButtockShare) {
+					pendingVolumeMask[g * 4 + 2] = x > 0.0f ? 2.0f : 1.0f;
+					hasButtocks = true;
+				}
+			}
+		}
+		return hasButtocks;
+	}
+
 	void GpuSmoother::SmoothRest(ID3D11DeviceContext* a_context, uint32_t a_passes)
 	{
 		// The rest mesh gets the runtime passes too, so the detail is measured against the same smoothing.
@@ -718,14 +993,16 @@ float3 RotateToward(float3 from, float3 to, float3 v, float amount)
 		restPassesDone = a_passes;
 	}
 
-	void GpuSmoother::Update(ID3D11DeviceContext* a_context, const std::vector<Affine>& a_bones, uint32_t a_runtimePasses, uint32_t a_autoPasses)
+	void GpuSmoother::Update(ID3D11DeviceContext* a_context, const std::vector<Affine>& a_bones, const Options& a_options)
 	{
 		const auto shaders = GetShaders(nullptr);
 		if (!shaders)
 			return;
 		const auto& m = *mesh;
-		a_runtimePasses = (std::min)(a_runtimePasses, SmoothLibrary::kMaxRuntimePasses);
-		a_autoPasses = (std::min)(a_autoPasses, SmoothLibrary::kMaxAutoSmoothPasses);
+		const uint32_t runtimePasses = (std::min)(a_options.runtimePasses, SmoothLibrary::kMaxRuntimePasses);
+		const uint32_t autoPasses = (std::min)(a_options.autoPasses, SmoothLibrary::kMaxAutoSmoothPasses);
+		const bool stretch = a_options.stretchDetail;
+		const bool restore = a_options.volumePreservation && hasButtocks && a_options.volumeRestore > 0.0f && pelvisBone < a_bones.size();
 
 		std::vector<float> boneRows(size_t(m.boneCount) * 12, 0.0f);
 		for (uint32_t b = 0; b < m.boneCount && b < a_bones.size(); b++) {
@@ -754,27 +1031,50 @@ float3 RotateToward(float3 from, float3 to, float3 v, float amount)
 			a_context->UpdateSubresource(region.buffer, 0, nullptr, data.data(), 0, 0);
 			regionDirty = false;
 		}
+		if (!pendingVolumeMask.empty()) {
+			a_context->UpdateSubresource(volumeMask.buffer, 0, nullptr, pendingVolumeMask.data(), 0, 0);
+			pendingVolumeMask.clear();
+		}
+		const uint32_t partialCount = (m.groupCount + kThreads - 1) / kThreads;
+		{
+			const Vec3 now = restore ? a_bones[pelvisBone] * volumePoint : volumePoint;
+			const FrameParams frame{ { volumePoint.x, volumePoint.y, volumePoint.z, 1.0f }, { now.x, now.y, now.z, 1.0f }, a_options.volumeRestore, partialCount,
+				stretch ? 1u : 0u, 0 };
+			a_context->UpdateSubresource(frameConstants, 0, nullptr, &frame, 0, 0);
+		}
 
 		{
 			SavedComputeState saved{ a_context };
-			a_context->CSSetConstantBuffers(0, 1, &constants);
-			if (restPassesDone != a_runtimePasses)
-				SmoothRest(a_context, a_runtimePasses);
+			ID3D11Buffer* constantBuffers[kConstantSlots]{ constants, frameConstants };
+			a_context->CSSetConstantBuffers(0, kConstantSlots, constantBuffers);
+			if (restPassesDone != runtimePasses)
+				SmoothRest(a_context, runtimePasses);
 
 			Run(a_context, shaders->smooth, { { 0, weightStart.srv }, { 1, weightBone.srv }, { 2, weights.srv }, { 3, bones.srv }, { 12, rest.srv } }, { { 0, smoothA.uav } },
 				m.groupCount);
 			View* from = &smoothA;
 			View* to = &smoothB;
-			for (uint32_t i = 0; i < a_runtimePasses; i++) {
+			for (uint32_t i = 0; i < runtimePasses; i++) {
 				Run(a_context, shaders->pass, { { 4, from->srv }, { 5, neighbourStart.srv }, { 6, neighbours.srv }, { 7, pinned.srv } }, { { 0, to->uav } }, m.groupCount);
 				std::swap(from, to);
 			}
+			// Stretch detail: the smoothed surface's area around each group, now and at rest.
+			View* areas = &maskA;
+			if (stretch) {
+				Run(a_context, shaders->stretchArea, { { 8, from->srv }, { 9, smoothedRestPassed.srv }, { 10, cornerStart.srv }, { 11, corners.srv } }, { { 0, maskA.uav } },
+					m.groupCount);
+				View* spare = &maskB;
+				for (uint32_t i = 0; i < kStretchRings; i++) {
+					Run(a_context, shaders->average, { { 5, neighbourStart.srv }, { 6, neighbours.srv }, { 25, areas->srv } }, { { 0, spare->uav } }, m.groupCount);
+					std::swap(areas, spare);
+				}
+			}
 			Run(a_context, shaders->detail,
 				{ { 3, bones.srv }, { 8, from->srv }, { 9, smoothedRestPassed.srv }, { 10, cornerStart.srv }, { 11, corners.srv }, { 12, rest.srv }, { 15, vertexSkin.srv },
-					{ 20, groupVertex.srv }, { 21, region.srv } },
+					{ 20, groupVertex.srv }, { 21, region.srv }, { 25, areas->srv } },
 				{ { 0, result.uav }, { 2, turns.uav } }, m.groupCount);
 
-			if (a_autoPasses > 0) {
+			if (autoPasses > 0) {
 				Run(a_context, shaders->mask,
 					{ { 4, result.srv }, { 5, neighbourStart.srv }, { 6, neighbours.srv }, { 10, cornerStart.srv }, { 11, corners.srv }, { 21, region.srv }, { 22, wings.srv },
 						{ 23, restEdgeAngle.srv }, { 24, restArea.srv } },
@@ -786,10 +1086,39 @@ float3 RotateToward(float3 from, float3 to, float3 v, float amount)
 					std::swap(mask, spare);
 				}
 				View* positions = &result;
-				for (uint32_t i = 0; i < a_autoPasses; i++) {
+				for (uint32_t i = 0; i < autoPasses; i++) {
 					View* next = positions == &smoothA ? &smoothB : &smoothA;
 					Run(a_context, shaders->relax, { { 4, positions->srv }, { 5, neighbourStart.srv }, { 6, neighbours.srv }, { 7, pinned.srv }, { 25, mask->srv } },
 						{ { 0, next->uav } }, m.groupCount);
+					positions = next;
+				}
+				if (positions != &result)
+					a_context->CopyResource(result.buffer, positions->buffer);
+			}
+
+			if (restore) {
+				// The push weights, kept off squashed skin and softened; then the buttocks' volume restored in steps.
+				Run(a_context, shaders->volumeWeight,
+					{ { 4, result.srv }, { 10, cornerStart.srv }, { 11, corners.srv }, { 21, region.srv }, { 24, restArea.srv }, { 26, volumeMask.srv } }, { { 0, maskA.uav } },
+					m.groupCount);
+				View* weightsNow = &maskA;
+				View* spare = &maskB;
+				for (uint32_t i = 0; i < kVolumeMaskRings; i++) {
+					Run(a_context, shaders->average, { { 5, neighbourStart.srv }, { 6, neighbours.srv }, { 25, weightsNow->srv } }, { { 0, spare->uav } }, m.groupCount);
+					std::swap(weightsNow, spare);
+				}
+				const UINT zero[4]{};
+				a_context->ClearUnorderedAccessViewUint(volumeStep.uav, zero);
+				View* positions = &result;
+				for (uint32_t i = 0; i < kVolumeSteps; i++) {
+					Run(a_context, shaders->volumePartial,
+						{ { 4, positions->srv }, { 10, cornerStart.srv }, { 11, corners.srv }, { 12, rest.srv }, { 25, weightsNow->srv }, { 26, volumeMask.srv } },
+						{ { 0, volumePartials.uav } }, m.groupCount);
+					Run(a_context, shaders->volumeSum, { { 27, volumePartials.srv } }, { { 0, volumeStep.uav } }, 1);
+					View* next = positions == &smoothA ? &smoothB : &smoothA;
+					Run(a_context, shaders->volumePush,
+						{ { 4, positions->srv }, { 7, pinned.srv }, { 10, cornerStart.srv }, { 11, corners.srv }, { 25, weightsNow->srv }, { 28, volumeStep.srv } }, { { 0, next->uav } },
+						m.groupCount);
 					positions = next;
 				}
 				if (positions != &result)

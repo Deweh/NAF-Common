@@ -131,8 +131,7 @@ namespace Morph
 		bool smoothed = false;                   // The GPU wrote the range last.
 		Values smoothedTotals;                   // The morphs in the GPU's rest positions.
 		std::vector<Affine> smoothedBones;       // As last given to the GPU.
-		uint32_t smoothedPasses = UINT32_MAX;
-		uint32_t smoothedAutoPasses = UINT32_MAX;
+		std::optional<GpuSmoother::Options> smoothedOptions;  // As last given to the GPU.
 		uint64_t regionGeneration = UINT64_MAX;  // Of the region gpu has.
 		bool inRegion = false;                   // Whether any of the shape is in it.
 	};

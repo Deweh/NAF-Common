@@ -140,6 +140,24 @@ namespace UI
 			ImGui::EndDisabled();
 		hint("More smooths creases further (default 60).");
 
+		bool stretchDetail = smoothing.GetStretchDetail();
+		if (ImGui::Checkbox("Stretch detail", &stretchDetail))
+			smoothing.SetStretchDetail(stretchDetail);
+		hint("Within the region, the rest detail grows with the skin around it as it stretches, and shrinks\nwhere it's squashed, so stretched skin keeps its shape and creases soften.");
+
+		bool volume = smoothing.GetVolumePreservation();
+		if (ImGui::Checkbox("Preserve volume", &volume))
+			smoothing.SetVolumePreservation(volume);
+		hint("Within the region, keeps smoothing from flattening the buttocks: each buttock's lost volume\nis pushed back out (not into squashed folds).");
+		float restore = smoothing.GetVolumeRestore() * 100.0f;
+		if (!volume)
+			ImGui::BeginDisabled();
+		if (ImGui::SliderFloat("Volume restored", &restore, 0.0f, 100.0f, "%.0f%%", ImGuiSliderFlags_AlwaysClamp))
+			smoothing.SetVolumeRestore(restore / 100.0f);
+		if (!volume)
+			ImGui::EndDisabled();
+		hint("How much of the buttocks' lost volume is put back (default 100%). Lower it if they look\ninflated with the legs back.");
+
 		int passes = static_cast<int>(smoothing.GetRuntimePasses());
 		if (ImGui::SliderInt("Runtime passes", &passes, 0, static_cast<int>(Morph::SmoothLibrary::kMaxRuntimePasses), "%d", ImGuiSliderFlags_AlwaysClamp))
 			smoothing.SetRuntimePasses(static_cast<uint32_t>(passes));

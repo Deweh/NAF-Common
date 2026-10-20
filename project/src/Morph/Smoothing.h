@@ -26,8 +26,24 @@
 // squashed (less area than at rest) and sharper than at rest (edges bent further than at rest), a few rings around,
 // plain smoothing passes spread the bunched vertices out and soften the fold. Detail the body has at rest isn't sharper
 // than at rest, so it's left alone.
+//
+// Optionally, also within the region: smoothing flattens the buttocks when the thighs come forward (squat: to about 70%
+// of their rest volume), as their skin stretches and the rest detail, added back at its rest size, spreads thinner.
+// Stretch detail scales the detail with how much the smoothed surface around it stretched (which also softens creases,
+// as squashed skin's detail shrinks). Volume preservation puts each buttock's volume (measured from a point moving with
+// the pelvis) back to its rest volume, or part of the way, by pushing it out along its normals. The push stays off skin that's squashed (the folds), so it fills the cheek
+// rather than sharpening the crease under it.
 namespace Morph
 {
+	// What a skin bone is to volume preservation.
+	enum class VolumeBone : uint8_t
+	{
+		kNone,
+		kPelvis,      // Moves the point volumes are measured from; its skin is around that point.
+		kPelvisRear,  // Buttock skin, and around that point.
+		kButtock,
+	};
+
 	// Where smoothing applies.
 	enum class SmoothRegion : uint8_t
 	{
@@ -126,6 +142,19 @@ namespace Morph
 		void SetAutoSmoothPasses(uint32_t a_passes) { autoSmoothPasses.store((std::min)(a_passes, kMaxAutoSmoothPasses), std::memory_order_relaxed); }
 		[[nodiscard]] uint32_t GetAutoSmoothPasses() const { return autoSmoothPasses.load(std::memory_order_relaxed); }
 
+		// Scaling the rest detail with how much the smoothed surface around it stretched, within the region (off by
+		// default).
+		void SetStretchDetail(bool a_enabled) { stretchDetail.store(a_enabled, std::memory_order_relaxed); }
+		[[nodiscard]] bool GetStretchDetail() const { return stretchDetail.load(std::memory_order_relaxed); }
+		// Volume preservation within the region (off by default), and how much of the buttocks' lost volume is put back,
+		// 0 to 1 (default 1).
+		void SetVolumePreservation(bool a_enabled) { volumePreservation.store(a_enabled, std::memory_order_relaxed); }
+		[[nodiscard]] bool GetVolumePreservation() const { return volumePreservation.load(std::memory_order_relaxed); }
+		void SetVolumeRestore(float a_amount) { volumeRestore.store(std::clamp(a_amount, 0.0f, 1.0f), std::memory_order_relaxed); }
+		[[nodiscard]] float GetVolumeRestore() const { return volumeRestore.load(std::memory_order_relaxed); }
+		// A skin bone's part in volume preservation, by name (case-insensitive, with or without "_skin").
+		[[nodiscard]] static VolumeBone GetVolumeBone(std::string_view a_bone);
+
 		// The mesh's data, built on a background thread the first time it's asked for; meshes with the same input and
 		// settings share it. Holders keep it alive; the cache doesn't.
 		MeshFuture Get(SmoothMesh::Input a_input);
@@ -143,6 +172,9 @@ namespace Morph
 		std::atomic<uint64_t> regionGeneration{ 0 };
 		std::atomic<bool> autoSmooth{ false };
 		std::atomic<uint32_t> autoSmoothPasses{ 60 };
+		std::atomic<bool> stretchDetail{ false };
+		std::atomic<bool> volumePreservation{ false };
+		std::atomic<float> volumeRestore{ 1.0f };
 		// Custom region: bone name (lowercase, without "_skin") to strength.
 		std::unordered_map<std::string, float> customBones;
 		mutable std::mutex lock;

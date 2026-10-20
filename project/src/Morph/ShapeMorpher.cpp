@@ -620,7 +620,12 @@ namespace Morph
 			}
 			smoothedTotals.clear();
 			smoothedTotals.emplace_back("", 0.0f);  // Never equal to real totals.
+			smoothedOptions.reset();
 			regionGeneration = UINT64_MAX;
+			std::vector<VolumeBone> volumeBones(boneCount, VolumeBone::kNone);
+			for (uint32_t b = 0; b < boneCount && b < boneNames.size(); b++) volumeBones[b] = SmoothLibrary::GetVolumeBone(boneNames[b]);
+			if (gpu->SetVolumeBones(volumeBones))
+				logger::info("Morphs: '{}' has buttocks, so volume preservation restores their volume.", shape->name.c_str());
 		}
 
 		// The region: how much each skin bone is in it. A shape wholly outside it keeps the CPU path.
@@ -656,15 +661,14 @@ namespace Morph
 			smoothedTotals = a_totals;
 			update = true;
 		}
-		const uint32_t passes = library.GetRuntimePasses();
-		const uint32_t autoPasses = library.GetAutoSmooth() ? library.GetAutoSmoothPasses() : 0;
-		if (passes != smoothedPasses || autoPasses != smoothedAutoPasses)
+		const GpuSmoother::Options options{ library.GetRuntimePasses(), library.GetAutoSmooth() ? library.GetAutoSmoothPasses() : 0, library.GetStretchDetail(),
+			library.GetVolumePreservation(), library.GetVolumeRestore() };
+		if (options != smoothedOptions)
 			update = true;
 		if (update) {
-			gpu->Update(a_context, bones, passes, autoPasses);
+			gpu->Update(a_context, bones, options);
 			smoothedBones = std::move(bones);
-			smoothedPasses = passes;
-			smoothedAutoPasses = autoPasses;
+			smoothedOptions = options;
 		}
 		smoothed = true;
 		return true;

@@ -415,6 +415,18 @@ namespace Morph
 		}
 	}
 
+	VolumeBone SmoothLibrary::GetVolumeBone(std::string_view a_bone)
+	{
+		const auto key = BoneKey(a_bone);
+		if (key == "pelvis")
+			return VolumeBone::kPelvis;
+		if (key == "pelvis_rear")
+			return VolumeBone::kPelvisRear;
+		if (key == "lbutt_01" || key == "rbutt_01")
+			return VolumeBone::kButtock;
+		return VolumeBone::kNone;
+	}
+
 	void SmoothLibrary::SetSettings(const SmoothSettings& a_settings)
 	{
 		SmoothSettings clamped = a_settings;

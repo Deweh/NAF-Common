@@ -60,6 +60,23 @@ A shape wholly outside the region keeps the CPU path.
 
 **Auto-smoothing** (off by default) smooths out crumpled creases afterwards, within the region, the way sculpting them out by hand does: the mask is where the skin is both squashed (from under 100% of its rest area, fully at 40%) and sharper than at rest (an edge bent from 8°, fully at 25°, more than at rest), spread four rings, and then *passes* (default 60) of plain smoothing move each vertex toward its neighbours' average by half the mask. Detail the body has at rest isn't sharper than at rest, so it's left alone, and the region keeps it off the abs. On squat, it takes the sharpest 1% of edges around the hips from 61° to 34° (hand-sculpted: 30°).
 
+With the thighs forward, smoothing flattens the buttocks, to about 70% of their rest volume (measured as below): their skin stretches, and the rest detail, added back at its rest size, spreads thinner. Two separate settings, both off by default and both within the region, deal with it:
+
+- **Stretch detail**: each group's detail is multiplied by the square root of how much the smoothed surface around it grew (its area now over at rest, both averaged over six rings), kept within 0.7 to 1.6. It also softens creases, as squashed skin's detail shrinks. Any shape.
+- **Volume preservation** restores the buttocks' volume. A buttock is the groups whose skin `Pelvis_Rear` and the `Butt_01` bones carry more than 25% of, split by side. Its volume is the sum of its triangles' tetrahedra to a point moving with `Pelvis` (the middle of the skin the pelvis bones carry more than half of), at rest (from the morphed rest positions) and now. It's pushed back out along its normals, toward its rest volume by *Volume restored* of what it lost (default 100%), in four steps. The push is weighted by a soft mask (from 10% buttock-bone skin, whole at 35%, softened four rings, blended across the middle over 1.5 units), kept off skin with under 60% of its rest area (whole from 100%) so it fills the cheek rather than sharpening the fold under it, and by the region. It only adds volume, never takes it away. The sums are done on the GPU in two dispatches (per thread group, then the total), so nothing is read back.
+
+On squat (real `GpuSmoother`, hip region, 700 + 100 passes), buttock volume and the sharpest 1% of hip edges:
+
+| | Volume | Edges |
+|---|---|---|
+| Smoothing alone | 67% | 61° |
+| Volume preservation, 50% | 85% | 67° |
+| Volume preservation, 100% | 103% | 70° |
+| Stretch detail | 76% | 42° |
+| Both (100%) | 103% | 46° |
+
+Volume preservation alone makes the folds along the cheeks' sides a little more defined; it doesn't add new ones. Offline, on other poses, the legs back (back 40, backout) can look inflated at 100% with both on: the hips widen. *Volume restored* is there for that. Both together add about 0.09 ms of GPU time per body. Shapes without buttock bones aren't affected by volume preservation.
+
 Smoothing works on weld groups, so UV seams don't open. With **Pin open edges** (on by default) a mesh's open edges keep plain skinning, so the body's neck stays where the head mesh meets it. The result is written in the shape's own vertex format: each vertex's position is carried back through its own skinning, so the game's skinning lands it on the result, and its normal, tangent and bitangent are turned from where skinning would put the rest surface's normal to the result's, the same way. Where a group's triangles are tiny or face every which way (the tips of toes), their normal is mostly rounding error, so the frames there turn with the smoothed surface around them instead.
 
 Our compute shaders write into a buffer of ours, which is copied into the shape's range of the game's vertex buffer on the GPU; nothing is read back. The game's compute state is saved and put back around it. A shape is smoothed when it's skinned, has normals and is bound by the backend (it has a TRI source, as BodySlide bodies and outfits do), on every visible loaded actor, morphed or not. Until its data is built, or if the GPU path can't be set up (the vertex buffer isn't a default-usage buffer, for one; logged), the shape is morphed on the CPU as before, and switching back rewrites its whole range from the CPU copy. A smoothed shape is updated whenever its bones move, while its actor is visible.
@@ -131,6 +148,9 @@ The first, single-pose pipeline (side splits on TWB-3BBB), with tools in `Docume
 | `smooth region <hips\|body\|custom>` | Where smoothing applies (default hips and thighs). |
 | `smooth auto <on\|off>` | Auto-smoothing of crumpled creases within the region (default off). |
 | `smooth autopasses <count>` | Auto-smoothing's passes (1 to 200, default 60). |
+| `smooth stretch <on\|off>` | Stretch detail within the region (default off). |
+| `smooth volume <on\|off>` | Volume preservation within the region (default off). |
+| `smooth restore <0 to 1>` | How much of the buttocks' lost volume volume preservation puts back (default 1). |
 
 The same settings, and the correctives switch, are in the F6 menu's **Settings** tab.
 
