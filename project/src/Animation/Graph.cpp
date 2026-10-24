@@ -503,6 +503,18 @@ namespace Animation
 
 	void Graph::ProcessEvents(GraphEventProcessor* a_gameGraph) const
 	{
+#ifdef TARGET_GAME_SF
+		if (!loadedData->pendingEvents.empty()) {
+			RE::BSTSmartPointer<RE::BSAnimationGraphManager> manager;
+			if (target->GetAnimationGraphManagerImpl(manager) && manager) {
+				// NAF updates after the game's pose pass. These annotations are dispatched by
+				// the next game update, outside NAF's locks, with the game's target handle.
+				for (const auto& [tag, payload] : loadedData->pendingEvents) {
+					manager->QueueEvent(tag, payload);
+				}
+			}
+		}
+#endif
 #ifdef TARGET_GAME_F4
 		for (auto& pair : loadedData->pendingEvents)
 		{
@@ -518,6 +530,17 @@ namespace Animation
 
 	void Graph::SendEventInstant(const RE::BSFixedString& a_event, const RE::BSFixedString& a_arg)
 	{
+#ifdef TARGET_GAME_SF
+		// Keep the public scheduling API, but let the game dispatch on its pose pass.
+		xSE::GetTaskInterface()->AddTask([reference = target, a_event, a_arg]() {
+			if (!reference)
+				return;
+			RE::BSTSmartPointer<RE::BSAnimationGraphManager> manager;
+			if (reference->GetAnimationGraphManagerImpl(manager) && manager) {
+				manager->QueueEvent(a_event, a_arg);
+			}
+		});
+#endif
 #ifdef TARGET_GAME_F4
 		xSE::GetTaskInterface()->AddTask([hndl = target->GetHandle(), a_event = a_event, a_arg = a_arg]() {
 			RE::NiPointer<RE::TESObjectREFR> target = hndl.get();

@@ -417,14 +417,23 @@ namespace Animation
 				return GraphUpdateHook(a_graphHolder, a_updateData, a_updateDependents);
 			}
 
-			auto& g = iter->second;
+			auto g = iter->second;
 			bool modelCulled = a_updateData->modelCulled;
 			a_updateData->modelCulled = modelCulled || !g->GetRequiresBaseTransforms();
+			// The original dispatches animation events. A sink may call back into NAF
+			// and detach/replace this graph, so keep it alive without holding stateLock.
+			l.unlock();
 			PERF_TIMER_START(start);
 			const bool updated = GraphUpdateHook(a_graphHolder, a_updateData, a_updateDependents);
 			PERF_TIMER_END(start, baseUpdateTime);
+			a_updateData->modelCulled = modelCulled;
 			if (!updated) {
 				return false;
+			}
+			l.lock();
+			auto current = gm.state->loadedGraphs.find(a_graphHolder);
+			if (current == gm.state->loadedGraphs.end() || current->second != g) {
+				return true;
 			}
 
 			std::unique_lock gl{ g->lock };
